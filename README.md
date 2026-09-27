@@ -39,6 +39,7 @@ npm run dev                   # http://localhost:3000
 | `npm run migrate` | Applies pending migrations |
 | `npm run typecheck` | Type-checks `src/` and `test/` |
 | `npm test` | Runs the test suite |
+| `npm run test:log` | Runs the tests and also writes the results to `test-results.log` |
 
 ### Configuration
 
@@ -47,6 +48,25 @@ npm run dev                   # http://localhost:3000
 | `DATABASE_URL` | none (required) | The app refuses to start without it |
 | `PORT` | `3000` | Must be a valid port number |
 | `TEST_DATABASE_URL` | `DATABASE_URL` with `_test` appended to the database name | Used only by the tests |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` or `silent` |
+| `LOG_FILE` | `logs/app.log` | Set to `off` to log to the console only |
+
+### Logs and debugging
+
+While the app runs, every request is logged as one JSON line to the console and to `logs/app.log`. The file is appended to across restarts and ignored by git.
+
+```json
+{"time":"…","level":"warn","msg":"request rejected","request_id":"99356229-…","method":"GET","path":"/accounts/…","status":404,"duration_ms":5.7,"error_code":"account_not_found"}
+```
+
+- Successful requests are logged as `info`, 4xx responses as `warn` (with the `error_code` that was returned), and 5xx responses as `error`.
+- An unexpected 500 also writes an `unhandled error` line with the request body, the error message, the stack trace and any Postgres error code or constraint. None of this is sent to the client.
+- Every response has an `X-Request-Id` header. Clients can also send their own. To find everything about one request, search for its id:
+
+```bash
+grep 99356229-ffd7-451b-9d95-85410acd0726 logs/app.log
+grep '"level":"error"' logs/app.log        # every server-side failure
+```
 
 ## Running the tests
 
@@ -56,7 +76,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 136 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 137 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -67,6 +87,7 @@ The suite has 136 tests. Most send real HTTP requests to the app running on a ra
 | `concurrency.test.ts` | Concurrent overspending, 100 opposite A↔B transfers without deadlock, total money conserved |
 | `history.test.ts` | Transaction history: direction labels, ordering, `limit` |
 | `errors.test.ts` | 415, 404 and 405 responses |
+| `logging.test.ts` | Requests are written to the log file with id, status and error code |
 
 The concurrency tests run each scenario 5 times, because a race can pass by luck in a single run. During development, each important safeguard (lock ordering, the guarded debit, the idempotency lock) was removed on purpose to confirm that the tests fail without it.
 
@@ -256,7 +277,7 @@ The hash only turns the key into a lock number. If two different keys hash to th
 1. Add authentication, then scope accounts and idempotency keys to the authenticated user.
 2. Expire idempotency keys after about 24 hours with a scheduled cleanup.
 3. Add cursor pagination to history (keyset on `created_at, id`) once accounts have long histories.
-4. Add structured logging with a request id, so a failed transfer can be traced across logs.
+4. Ship logs to a central store instead of a local file, and rotate `logs/app.log`, which currently grows forever.
 5. Add a health endpoint for deployment, and graceful shutdown that drains in-flight transactions.
 6. Run the test suite in CI against a PostgreSQL service container.
 7. Add a nightly check that the sum of all balances equals the sum of all starting balances.
@@ -275,7 +296,8 @@ src/
   db/migrate.ts        migration runner (advisory-locked, one transaction per file)
   routes/              HTTP layer: parse and validate, then call a service
   services/            SQL and business rules
-  middleware/          JSON-only bodies, 404/405, error → JSON
+  middleware/          request logging, JSON-only bodies, 404/405, error → JSON
+  logger.ts            JSON-lines logger (console + LOG_FILE)
   money.ts             amount parsing (string-only, NUMERIC(20,2) format)
   validation.ts        body, id and name parsing
 test/                  node:test suites against a real Postgres

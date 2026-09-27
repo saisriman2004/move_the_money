@@ -1,5 +1,6 @@
 import { Pool, type PoolClient } from 'pg';
 import { config } from '../config';
+import { errorFields, logger } from '../logger';
 
 // NUMERIC columns come back from pg as strings. We keep them that way so
 // money values never pass through JavaScript floating point.
@@ -10,7 +11,7 @@ export const pool = new Pool({
 
 pool.on('error', (err) => {
   // An idle client lost its connection. The pool discards it; log and move on.
-  console.error('Unexpected error on idle Postgres client', err);
+  logger.error('idle Postgres client lost its connection', errorFields(err));
 });
 
 export async function closePool(): Promise<void> {

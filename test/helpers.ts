@@ -57,6 +57,8 @@ export async function startTestApp(): Promise<TestApp> {
   const url = testDatabaseUrl();
   await ensureDatabaseExists(url);
   process.env.DATABASE_URL = url.toString();
+  // Keep test output readable; a test that checks logging turns it back on.
+  process.env.LOG_LEVEL ??= 'silent';
 
   // Imported only now, so config and the pool pick up the test DATABASE_URL.
   const { createApp } = await import('../src/app.js');
