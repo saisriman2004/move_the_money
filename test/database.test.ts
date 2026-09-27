@@ -36,7 +36,7 @@ async function violatedConstraint(sql: string, params: unknown[]): Promise<strin
 }
 
 describe('migrations', () => {
-  test('create the accounts and transfers tables and record 001', async () => {
+  test('create the accounts and transfers tables and record each migration', async () => {
     const tables = await app.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables
         WHERE table_schema = 'public' AND table_name IN ('accounts', 'transfers')
@@ -45,13 +45,13 @@ describe('migrations', () => {
     assert.deepEqual(tables.map((t) => t.table_name), ['accounts', 'transfers']);
 
     const recorded = await app.query<{ name: string }>('SELECT name FROM schema_migrations ORDER BY name');
-    assert.deepEqual(recorded.map((r) => r.name), ['001_initial_schema.sql']);
+    assert.deepEqual(recorded.map((r) => r.name), ['001_initial_schema.sql', '002_transfer_idempotency_keys.sql']);
   });
 
   test('running them again is a no-op', async () => {
     assert.deepEqual(await migrations.migrate(), []);
     const [row] = await app.query<{ count: string }>('SELECT count(*) FROM schema_migrations');
-    assert.equal(row!.count, '1');
+    assert.equal(row!.count, '2');
   });
 
   test('concurrent runners do not collide', async () => {

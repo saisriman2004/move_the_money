@@ -13,6 +13,13 @@ export interface TransferInput {
   fromAccountId: string;
   toAccountId: string;
   amount: string;
+  idempotencyKey?: string;
+}
+
+export interface TransferResult {
+  transfer: Transfer;
+  /** True when the idempotency key matched an earlier transfer and no money moved. */
+  replayed: boolean;
 }
 
 const TRANSFER_COLUMNS = 'id, from_account_id, to_account_id, amount, created_at';
@@ -21,8 +28,38 @@ const TRANSFER_COLUMNS = 'id, from_account_id, to_account_id, amount, created_at
  * Moves money between two accounts. The debit, the credit and the transfer
  * record commit together or not at all.
  */
-export async function createTransfer({ fromAccountId, toAccountId, amount }: TransferInput): Promise<Transfer> {
+export async function createTransfer({
+  fromAccountId,
+  toAccountId,
+  amount,
+  idempotencyKey,
+}: TransferInput): Promise<TransferResult> {
   return withTransaction(async (client) => {
+    if (idempotencyKey !== undefined) {
+      // Serialize requests sharing a key, before anything else, so a concurrent
+      // retry waits for the first attempt to commit and then finds it below.
+      // Catching a unique violation on insert instead would be too late: a retry
+      // could fail with insufficient_funds before it ever reached the insert.
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [idempotencyKey]);
+      const { rows: existing } = await client.query<Transfer & { matches: boolean }>(
+        `SELECT ${TRANSFER_COLUMNS},
+                (from_account_id = $2 AND to_account_id = $3 AND amount = $4::numeric) AS matches
+         FROM transfers WHERE idempotency_key = $1`,
+        [idempotencyKey, fromAccountId, toAccountId, amount],
+      );
+      if (existing[0]) {
+        const { matches, ...transfer } = existing[0];
+        if (!matches) {
+          throw new HttpError(
+            409,
+            'idempotency_key_conflict',
+            'Idempotency-Key was already used for a transfer with different parameters',
+          );
+        }
+        return { transfer, replayed: true };
+      }
+    }
+
     // Lock both accounts in a fixed (id) order. Without this, concurrent
     // transfers A->B and B->A can each lock one row and deadlock on the other.
     const { rows: locked } = await client.query<{ id: string }>(
@@ -51,11 +88,11 @@ export async function createTransfer({ fromAccountId, toAccountId, amount }: Tra
     await client.query('UPDATE accounts SET balance = balance + $1 WHERE id = $2', [amount, toAccountId]);
 
     const { rows } = await client.query<Transfer>(
-      `INSERT INTO transfers (from_account_id, to_account_id, amount)
-       VALUES ($1, $2, $3)
+      `INSERT INTO transfers (from_account_id, to_account_id, amount, idempotency_key)
+       VALUES ($1, $2, $3, $4)
        RETURNING ${TRANSFER_COLUMNS}`,
-      [fromAccountId, toAccountId, amount],
+      [fromAccountId, toAccountId, amount, idempotencyKey ?? null],
     );
-    return rows[0]!;
+    return { transfer: rows[0]!, replayed: false };
   });
 }

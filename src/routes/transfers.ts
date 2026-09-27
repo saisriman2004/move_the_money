@@ -4,6 +4,9 @@ import { parsePositiveAmount } from '../money';
 import { createTransfer } from '../services/transfers';
 import { parseAccountId, parseBody, requireField } from '../validation';
 
+// Printable ASCII without spaces, so keys are safe to log and compare byte-for-byte.
+const IDEMPOTENCY_KEY_PATTERN = /^[\x21-\x7e]{1,255}$/;
+
 export const transfersRouter = Router();
 
 transfersRouter.post('/', async (req, res) => {
@@ -16,6 +19,16 @@ transfersRouter.post('/', async (req, res) => {
   }
   const amount = parsePositiveAmount(requireField(body, 'amount'), 'amount');
 
-  const transfer = await createTransfer({ fromAccountId, toAccountId, amount });
+  const idempotencyKey = req.get('Idempotency-Key');
+  if (idempotencyKey !== undefined && !IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)) {
+    throw new HttpError(
+      400,
+      'invalid_idempotency_key',
+      'Idempotency-Key must be 1-255 printable ASCII characters without spaces',
+    );
+  }
+
+  const { transfer, replayed } = await createTransfer({ fromAccountId, toAccountId, amount, idempotencyKey });
+  if (replayed) res.set('Idempotent-Replayed', 'true');
   res.status(201).json(transfer);
 });
