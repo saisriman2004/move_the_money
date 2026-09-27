@@ -271,6 +271,12 @@ This makes all requests with the same key wait in line, and the lock is released
 
 The hash only turns the key into a lock number. If two different keys hash to the same number, those requests wait for each other briefly, but the lookup compares the real key text, so the result is still correct.
 
+### Other decisions
+
+- **Accounts must open with a balance greater than zero.** An account is created with money in it, so `"0"` is rejected. A balance can still reach `0.00` later by spending, which is why the database constraint is `balance >= 0` and not `> 0`.
+- **`Idempotency-Key` is optional.** A request without one is always treated as a new transfer. Requiring it would be safer against accidental double-sends, but it would also force every client, including quick `curl` testing, to generate a key. Clients that retry should always send one.
+- **A failed transfer does not use up its key.** Only successful transfers are stored, so after a 422 or a 500 the same key can be retried, for example after topping up the account. The trade-off is that a key whose first attempt failed can then be used for a different request without a 409. Some payment APIs store failed results as well, so a retry returns the same failure. That approach is stricter, but it needs a separate table for attempts.
+
 ---
 
 ## What I chose not to build
