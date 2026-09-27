@@ -34,8 +34,18 @@ async function ensureDatabaseExists(url: URL): Promise<void> {
   }
 }
 
+export interface Response {
+  status: number;
+  headers: Headers;
+  body: any;
+}
+
 export interface TestApp {
   baseUrl: string;
+  /** Sends a JSON request. A string body is sent as-is, so tests can send malformed JSON. */
+  request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<Response>;
+  /** Creates an account through the API and returns its id. */
+  createAccount(startingBalance?: string): Promise<string>;
   query<T extends object = any>(sql: string, params?: unknown[]): Promise<T[]>;
   close(): Promise<void>;
 }
@@ -56,8 +66,27 @@ export async function startTestApp(): Promise<TestApp> {
     const s = createApp().listen(0, () => resolve(s));
   });
 
-  return {
-    baseUrl: `http://localhost:${(server.address() as AddressInfo).port}`,
+  const baseUrl = `http://localhost:${(server.address() as AddressInfo).port}`;
+  const app: TestApp = {
+    baseUrl,
+    async request(method, path, body, headers = {}) {
+      const res = await fetch(baseUrl + path, {
+        method,
+        headers: { 'content-type': 'application/json', ...headers },
+        body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
+      });
+      const text = await res.text();
+      return { status: res.status, headers: res.headers, body: text ? JSON.parse(text) : undefined };
+    },
+    async createAccount(startingBalance = '0') {
+      const res = await app.request('POST', '/accounts', {
+        first_name: 'Test',
+        last_name: 'User',
+        starting_balance: startingBalance,
+      });
+      if (res.status !== 201) throw new Error(`createAccount failed: ${JSON.stringify(res.body)}`);
+      return res.body.id;
+    },
     async query(sql, params) {
       return (await pool.query(sql, params)).rows;
     },
@@ -66,4 +95,8 @@ export async function startTestApp(): Promise<TestApp> {
       await closePool();
     },
   };
+  return app;
 }
+
+/** A valid UUID that no account will ever have. */
+export const MISSING_ID = '00000000-0000-0000-0000-000000000000';
