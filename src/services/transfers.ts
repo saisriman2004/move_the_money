@@ -1,4 +1,4 @@
-import { withTransaction } from '../db';
+import { pool, withTransaction } from '../db';
 import { HttpError } from '../errors';
 
 export interface Transfer {
@@ -95,4 +95,23 @@ export async function createTransfer({
     );
     return { transfer: rows[0]!, replayed: false };
   });
+}
+
+export interface AccountTransaction extends Transfer {
+  /** Relative to the requested account: money out is a debit, money in is a credit. */
+  direction: 'debit' | 'credit';
+}
+
+/** Lists the most recent transfers into or out of an account, newest first. */
+export async function listTransfersForAccount(accountId: string, limit: number): Promise<AccountTransaction[]> {
+  const { rows } = await pool.query<AccountTransaction>(
+    `SELECT ${TRANSFER_COLUMNS},
+            CASE WHEN from_account_id = $1 THEN 'debit' ELSE 'credit' END AS direction
+     FROM transfers
+     WHERE from_account_id = $1 OR to_account_id = $1
+     ORDER BY created_at DESC, id DESC
+     LIMIT $2`,
+    [accountId, limit],
+  );
+  return rows;
 }

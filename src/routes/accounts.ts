@@ -2,7 +2,11 @@ import { Router } from 'express';
 import { HttpError } from '../errors';
 import { parseAmount } from '../money';
 import { createAccount, findAccount } from '../services/accounts';
+import { listTransfersForAccount } from '../services/transfers';
 import { parseAccountId, parseBody, parseName, requireField } from '../validation';
+
+const DEFAULT_HISTORY_LIMIT = 50;
+const MAX_HISTORY_LIMIT = 100;
 
 export const accountsRouter = Router();
 
@@ -23,4 +27,22 @@ accountsRouter.get('/:id', async (req, res) => {
     throw new HttpError(404, 'account_not_found', 'Account not found');
   }
   res.json(account);
+});
+
+accountsRouter.get('/:id/transactions', async (req, res) => {
+  const id = parseAccountId(req.params.id, 'Account id');
+
+  const rawLimit = req.query.limit;
+  let limit = DEFAULT_HISTORY_LIMIT;
+  if (rawLimit !== undefined) {
+    limit = typeof rawLimit === 'string' && /^\d{1,3}$/.test(rawLimit) ? Number(rawLimit) : 0;
+    if (limit < 1 || limit > MAX_HISTORY_LIMIT) {
+      throw new HttpError(400, 'invalid_limit', `limit must be an integer from 1 to ${MAX_HISTORY_LIMIT}`);
+    }
+  }
+
+  if (!(await findAccount(id))) {
+    throw new HttpError(404, 'account_not_found', 'Account not found');
+  }
+  res.json({ data: await listTransfersForAccount(id, limit) });
 });
