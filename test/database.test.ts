@@ -164,6 +164,25 @@ describe('withTransaction', () => {
     assert.equal(row!.first_name, 'Ada');
   });
 
+  test('a connection killed while a query is running fails the request instead of crashing the process', async () => {
+    let killedPid: number | undefined;
+    await assert.rejects(
+      db.withTransaction(async (client) => {
+        const { rows } = await client.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+        killedPid = rows[0]!.pid;
+        const running = client.query('SELECT pg_sleep(5)');
+        // Wait until the sleep is actually running, then kill the connection under it.
+        while ((await app.query(`SELECT 1 FROM pg_stat_activity WHERE pid = $1 AND query LIKE '%pg_sleep%'`, [killedPid])).length === 0);
+        await app.query('SELECT pg_terminate_backend($1)', [killedPid]);
+        await running;
+      }),
+    );
+    // Give a stray 'error' event time to fire; without a listener it would kill this process.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const [row] = await app.query<{ pid: number }>('SELECT pg_backend_pid() AS pid');
+    assert.notEqual(row!.pid, killedPid);
+  });
+
   test('if ROLLBACK fails, rethrows the original error and the pool discards the connection', async () => {
     let killedPid: number | undefined;
     await assert.rejects(

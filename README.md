@@ -76,11 +76,11 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 137 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 139 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
-| `database.test.ts` | Migrations, schema constraints, `withTransaction` commit and rollback, including a connection that dies during rollback |
+| `database.test.ts` | Migrations, schema constraints, `withTransaction` commit and rollback, including a connection that dies mid-query or during rollback |
 | `accounts.test.ts` | Account creation and lookup, name and amount validation |
 | `transfers.test.ts` | Transfers, exact decimal arithmetic, rollback when an account is missing, validation |
 | `idempotency.test.ts` | Replays, conflicts, `"100"` matching `"100.00"`, concurrent retries with one key |
@@ -90,6 +90,16 @@ The suite has 137 tests. Most send real HTTP requests to the app running on a ra
 | `logging.test.ts` | Requests are written to the log file with id, status and error code |
 
 The concurrency tests run each scenario 5 times, because a race can pass by luck in a single run. During development, each important safeguard (lock ordering, the guarded debit, the idempotency lock) was removed on purpose to confirm that the tests fail without it.
+
+### Demo: the database fails in the middle of a transfer
+
+With the API running (`npm run dev`), in another terminal:
+
+```bash
+node scripts/crash-demo.js
+```
+
+The script pauses a transfer after it has debited and credited inside its transaction, then kills its database connection. It shows that other sessions never see the uncommitted change, the client gets a 500, no money is lost, and retrying with the same `Idempotency-Key` runs the transfer exactly once.
 
 ---
 
@@ -288,6 +298,7 @@ The hash only turns the key into a lock number. If two different keys hash to th
 
 ```
 migrations/            numbered SQL files, applied in order by src/db/migrate.ts
+scripts/crash-demo.js  kills a transfer's DB connection mid-transaction to show atomicity + idempotency
 src/
   app.ts               builds the Express app (no listen, so tests can start it)
   index.ts             starts the server

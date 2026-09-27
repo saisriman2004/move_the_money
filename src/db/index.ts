@@ -26,6 +26,13 @@ export async function closePool(): Promise<void> {
 export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
   let broken: Error | undefined;
+  // If the connection drops while checked out, pg emits 'error' on the client.
+  // With no listener, Node treats that as fatal and the whole server crashes.
+  const onConnectionError = (err: Error) => {
+    broken = err;
+    logger.error('Postgres connection lost during a transaction', errorFields(err));
+  };
+  client.on('error', onConnectionError);
   try {
     await client.query('BEGIN');
     const result = await fn(client);
@@ -37,11 +44,12 @@ export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>)
     } catch (rollbackErr) {
       // The connection is unusable. Releasing with an error makes the pool
       // destroy it instead of handing it to the next caller.
-      broken = rollbackErr as Error;
+      broken ??= rollbackErr as Error;
     }
     // Rethrow the original error, not the rollback failure, so the cause isn't hidden.
     throw err;
   } finally {
+    client.off('error', onConnectionError);
     client.release(broken);
   }
 }
