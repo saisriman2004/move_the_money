@@ -157,7 +157,7 @@ curl -X POST localhost:3000/transfers -H 'content-type: application/json' \
 
 - `amount` must be greater than zero, with the same format rules as `starting_balance`.
 - The two accounts must be different.
-- **`Idempotency-Key` header (optional):** 1–255 printable ASCII characters, no spaces.
+- **`Idempotency-Key` header (required):** 1–255 printable ASCII characters, no spaces. Generate a new one (for example a UUID) for each transfer you intend, and reuse it for retries of that transfer. A request without one gets `400 missing_idempotency_key`.
   - Same key and same request: returns the original transfer with `201` and `Idempotent-Replayed: true`, and no money moves.
   - Same key and a different request (different accounts or amount): `409`.
   - A failed request, such as one with insufficient funds, does not use up its key, so it can be retried.
@@ -200,6 +200,7 @@ Every error has the same shape:
 | 400 | `invalid_name` | Not a string, empty after trimming, or over 100 characters |
 | 400 | `invalid_account_id` | Not a UUID |
 | 400 | `same_account` | `from_account_id` equals `to_account_id` |
+| 400 | `missing_idempotency_key` | `POST /transfers` without an `Idempotency-Key` header |
 | 400 | `invalid_idempotency_key` | The header is empty, too long, or has spaces or non-ASCII characters |
 | 400 | `invalid_limit` | `limit` isn't an integer from 1 to 100 |
 | 404 | `account_not_found` | The account doesn't exist |
@@ -255,7 +256,7 @@ INSERT INTO transfers ...;                                                -- 4. 
 
 ### Idempotency strategy
 
-`Idempotency-Key` is stored in a `UNIQUE` column on `transfers`. When a key is present, the transaction starts with:
+Every transfer carries a client-generated `Idempotency-Key`, stored in a `UNIQUE` column on `transfers`. The transaction starts with:
 
 ```sql
 SELECT pg_advisory_xact_lock(hashtextextended($key, 0));
@@ -274,7 +275,7 @@ The hash only turns the key into a lock number. If two different keys hash to th
 ### Other decisions
 
 - **Accounts must open with a balance greater than zero.** An account is created with money in it, so `"0"` is rejected. A balance can still reach `0.00` later by spending, which is why the database constraint is `balance >= 0` and not `> 0`.
-- **`Idempotency-Key` is optional.** A request without one is always treated as a new transfer. Requiring it would be safer against accidental double-sends, but it would also force every client, including quick `curl` testing, to generate a key. Clients that retry should always send one.
+- **`Idempotency-Key` is required.** Without a client-chosen key, the server cannot tell a retry of one transfer from two intentional identical transfers, so an optional key would let the same transfer submitted twice be applied twice. Requiring it makes that impossible: the same key replays, and a different key is a new transfer. The cost is that every client has to generate a key, including quick `curl` tests.
 - **A failed transfer does not use up its key.** Only successful transfers are stored, so after a 422 or a 500 the same key can be retried, for example after topping up the account. The trade-off is that a key whose first attempt failed can then be used for a different request without a 409. Some payment APIs store failed results as well, so a retry returns the same failure. That approach is stricter, but it needs a separate table for attempts.
 
 ---

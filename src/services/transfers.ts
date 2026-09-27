@@ -13,7 +13,8 @@ export interface TransferInput {
   fromAccountId: string;
   toAccountId: string;
   amount: string;
-  idempotencyKey?: string;
+  /** Required: identifies one logical transfer across retries. */
+  idempotencyKey: string;
 }
 
 export interface TransferResult {
@@ -35,29 +36,27 @@ export async function createTransfer({
   idempotencyKey,
 }: TransferInput): Promise<TransferResult> {
   return withTransaction(async (client) => {
-    if (idempotencyKey !== undefined) {
-      // Serialize requests sharing a key, before anything else, so a concurrent
-      // retry waits for the first attempt to commit and then finds it below.
-      // Catching a unique violation on insert instead would be too late: a retry
-      // could fail with insufficient_funds before it ever reached the insert.
-      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [idempotencyKey]);
-      const { rows: existing } = await client.query<Transfer & { matches: boolean }>(
-        `SELECT ${TRANSFER_COLUMNS},
-                (from_account_id = $2 AND to_account_id = $3 AND amount = $4::numeric) AS matches
-         FROM transfers WHERE idempotency_key = $1`,
-        [idempotencyKey, fromAccountId, toAccountId, amount],
-      );
-      if (existing[0]) {
-        const { matches, ...transfer } = existing[0];
-        if (!matches) {
-          throw new HttpError(
-            409,
-            'idempotency_key_conflict',
-            'Idempotency-Key was already used for a transfer with different parameters',
-          );
-        }
-        return { transfer, replayed: true };
+    // Serialize requests sharing a key, before anything else, so a concurrent
+    // retry waits for the first attempt to commit and then finds it below.
+    // Catching a unique violation on insert instead would be too late: a retry
+    // could fail with insufficient_funds before it ever reached the insert.
+    await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [idempotencyKey]);
+    const { rows: existing } = await client.query<Transfer & { matches: boolean }>(
+      `SELECT ${TRANSFER_COLUMNS},
+              (from_account_id = $2 AND to_account_id = $3 AND amount = $4::numeric) AS matches
+       FROM transfers WHERE idempotency_key = $1`,
+      [idempotencyKey, fromAccountId, toAccountId, amount],
+    );
+    if (existing[0]) {
+      const { matches, ...transfer } = existing[0];
+      if (!matches) {
+        throw new HttpError(
+          409,
+          'idempotency_key_conflict',
+          'Idempotency-Key was already used for a transfer with different parameters',
+        );
       }
+      return { transfer, replayed: true };
     }
 
     // Lock both accounts in a fixed (id) order. Without this, concurrent
@@ -91,7 +90,7 @@ export async function createTransfer({
       `INSERT INTO transfers (from_account_id, to_account_id, amount, idempotency_key)
        VALUES ($1, $2, $3, $4)
        RETURNING ${TRANSFER_COLUMNS}`,
-      [fromAccountId, toAccountId, amount, idempotencyKey ?? null],
+      [fromAccountId, toAccountId, amount, idempotencyKey],
     );
     return { transfer: rows[0]!, replayed: false };
   });

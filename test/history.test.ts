@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { MISSING_ID, startTestApp, type TestApp } from './helpers';
 
@@ -17,7 +18,7 @@ function history(accountId: string, query = '') {
 }
 
 function transfer(from: string, to: string, amount: string) {
-  return app.request('POST', '/transfers', { from_account_id: from, to_account_id: to, amount });
+  return app.request('POST', '/transfers', { from_account_id: from, to_account_id: to, amount }, { 'Idempotency-Key': randomUUID() });
 }
 
 /** Inserts n transfers from -> to directly, one second apart, oldest first. Returns their ids oldest first. */

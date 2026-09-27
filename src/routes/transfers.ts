@@ -20,8 +20,13 @@ transfersRouter.post('/', async (req, res) => {
   }
   const amount = parsePositiveAmount(requireField(body, 'amount'), 'amount');
 
+  // Required, so the same transfer submitted twice is only ever applied once:
+  // without a client-chosen key, a retry and a second intentional transfer look identical.
   const idempotencyKey = req.get('Idempotency-Key');
-  if (idempotencyKey !== undefined && !IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)) {
+  if (idempotencyKey === undefined) {
+    throw new HttpError(400, 'missing_idempotency_key', 'Idempotency-Key header is required');
+  }
+  if (!IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)) {
     throw new HttpError(
       400,
       'invalid_idempotency_key',

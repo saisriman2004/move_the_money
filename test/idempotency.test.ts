@@ -123,13 +123,17 @@ describe('Idempotency-Key on POST /transfers', () => {
     assert.equal(await app.balance(from), '25.00');
   });
 
-  test('requests without a key are never deduplicated', async () => {
+  test('a transfer without a key is rejected and moves nothing', async () => {
+    // Without a key, a retry and a second intentional transfer look identical,
+    // so the API refuses to guess: sending the same transfer twice can't apply it twice.
     const from = await app.createAccount('10.00');
     const to = await app.createAccount('0');
-    const a = await transfer({ from, to, amount: '1' });
-    const b = await transfer({ from, to, amount: '1' });
-    assert.notEqual(a.body.id, b.body.id);
-    assert.equal(await app.balance(from), '8.00');
+    for (let i = 0; i < 2; i++) {
+      const res = await transfer({ from, to, amount: '1' });
+      assert.equal(res.status, 400);
+      assert.deepEqual(res.body, { error: 'missing_idempotency_key', message: 'Idempotency-Key header is required' });
+    }
+    assert.equal(await app.balance(from), '10.00');
   });
 
   test('keys are case-sensitive', async () => {

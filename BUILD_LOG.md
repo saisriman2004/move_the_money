@@ -41,6 +41,8 @@ I also chose not to do some cleanup work that did not improve correctness, such 
 
 One AI suggestion that I did keep was the advisory lock for idempotency. My initial thought was to rely mainly on the unique idempotency key, but after reasoning through concurrent retries I saw that a retry could otherwise hit `insufficient_funds` before reaching the duplicate insert. The advisory lock made the replay behaviour much cleaner, so I kept it after verifying it with concurrent tests.
 
+The `Idempotency-Key` header was originally optional, and AI had even written up reasons for keeping it that way. When I reviewed the finished project against the brief, I realised that conflicted with the rule that the same transfer submitted twice is only applied once: without a key, two identical requests moved the money twice, because the server cannot tell a retry from a second intentional transfer. I made the header required, so a transfer without one is rejected with a 400, and I replaced the test that allowed unkeyed duplicates with one that proves they are refused.
+
 ## What I shipped but would improve
 
 There is no authentication, so any caller who knows an account ID can move money from it.

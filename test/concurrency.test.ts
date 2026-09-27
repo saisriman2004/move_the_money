@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { startTestApp, type TestApp } from './helpers';
 
@@ -17,7 +18,8 @@ after(async () => {
 const ROUNDS = 5;
 
 function transfer(from: string, to: string, amount: string) {
-  return app.request('POST', '/transfers', { from_account_id: from, to_account_id: to, amount });
+  // A fresh key per call: each one is a separate logical transfer.
+  return app.request('POST', '/transfers', { from_account_id: from, to_account_id: to, amount }, { 'Idempotency-Key': randomUUID() });
 }
 
 function countStatuses(results: { status: number }[]): Record<number, number> {
