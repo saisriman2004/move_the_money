@@ -76,7 +76,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 139 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 109 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
