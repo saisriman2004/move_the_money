@@ -118,7 +118,7 @@ curl -X POST localhost:3000/accounts -H 'content-type: application/json' \
 | Field | Rules |
 |---|---|
 | `first_name`, `last_name` | Required strings. Surrounding whitespace is trimmed. Must be 1–100 characters after trimming. |
-| `starting_balance` | Required string. `0` or more, at most 2 decimal places, at most 18 digits before the point. `"0"` is allowed. |
+| `starting_balance` | Required string. Greater than zero, at most 2 decimal places, at most 18 digits before the point. An account can still reach `0.00` later by spending. |
 
 Unknown fields are rejected, so a typo like `startingBalance` fails instead of being ignored.
 
@@ -186,7 +186,7 @@ Every error has the same shape:
 | 400 | `invalid_body` | The body is JSON but not an object |
 | 400 | `unknown_field` | The body has a field the endpoint doesn't accept |
 | 400 | `missing_field` | A required field is absent |
-| 400 | `invalid_amount` | Not a string, negative, zero (for transfers), more than 2 decimals, or more than 18 integer digits |
+| 400 | `invalid_amount` | Not a string, zero or negative, more than 2 decimals, or more than 18 integer digits |
 | 400 | `invalid_name` | Not a string, empty after trimming, or over 100 characters |
 | 400 | `invalid_account_id` | Not a UUID |
 | 400 | `same_account` | `from_account_id` equals `to_account_id` |

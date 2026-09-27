@@ -32,7 +32,6 @@ describe('POST /accounts', () => {
   for (const [input, stored] of [
     ['100', '100.00'],
     ['100.5', '100.50'],
-    ['0', '0.00'],
     ['0.01', '0.01'],
     ['999999999999999999.99', '999999999999999999.99'],
   ] as const) {
@@ -91,6 +90,8 @@ describe('POST /accounts', () => {
   }
 
   for (const [label, value] of [
+    ['zero', '0'],
+    ['zero with decimals', '0.00'],
     ['negative', '-1'],
     ['three decimals', '1.005'],
     ['exponent', '1e3'],

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { HttpError } from '../errors';
 import { methodNotAllowed } from '../middleware/notFound';
-import { parseAmount } from '../money';
+import { parsePositiveAmount } from '../money';
 import { createAccount, findAccount } from '../services/accounts';
 import { listTransfersForAccount } from '../services/transfers';
 import { parseAccountId, parseBody, parseName, requireField } from '../validation';
@@ -16,7 +16,7 @@ accountsRouter.post('/', async (req, res) => {
   const account = await createAccount({
     firstName: parseName(requireField(body, 'first_name'), 'first_name'),
     lastName: parseName(requireField(body, 'last_name'), 'last_name'),
-    startingBalance: parseAmount(requireField(body, 'starting_balance'), 'starting_balance'),
+    startingBalance: parsePositiveAmount(requireField(body, 'starting_balance'), 'starting_balance'),
   });
   res.status(201).json(account);
 });
