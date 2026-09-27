@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { HttpError } from '../errors';
+import { methodNotAllowed } from '../middleware/notFound';
 import { parseAmount } from '../money';
 import { createAccount, findAccount } from '../services/accounts';
 import { listTransfersForAccount } from '../services/transfers';
@@ -46,3 +47,7 @@ accountsRouter.get('/:id/transactions', async (req, res) => {
   }
   res.json({ data: await listTransfersForAccount(id, limit) });
 });
+
+accountsRouter.all('/', methodNotAllowed('POST'));
+accountsRouter.all('/:id', methodNotAllowed('GET, HEAD'));
+accountsRouter.all('/:id/transactions', methodNotAllowed('GET, HEAD'));

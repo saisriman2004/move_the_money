@@ -155,6 +155,7 @@ describe('POST /transfers validation', () => {
     ['three decimals', '1.005'],
     ['a JSON number', 5],
     ['letters', 'ten'],
+    ['more than 18 integer digits', '1000000000000000000.00'],
     ['null', null],
   ] as const) {
     test(`rejects amount: ${label}`, async () => {

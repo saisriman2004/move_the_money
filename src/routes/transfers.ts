@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { HttpError } from '../errors';
+import { methodNotAllowed } from '../middleware/notFound';
 import { parsePositiveAmount } from '../money';
 import { createTransfer } from '../services/transfers';
 import { parseAccountId, parseBody, requireField } from '../validation';
@@ -32,3 +33,5 @@ transfersRouter.post('/', async (req, res) => {
   if (replayed) res.set('Idempotent-Replayed', 'true');
   res.status(201).json(transfer);
 });
+
+transfersRouter.all('/', methodNotAllowed('POST'));

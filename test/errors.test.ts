@@ -1,0 +1,41 @@
+import assert from 'node:assert/strict';
+import { after, before, describe, test } from 'node:test';
+import { startTestApp, type TestApp } from './helpers';
+
+let app: TestApp;
+
+before(async () => {
+  app = await startTestApp();
+});
+
+after(async () => {
+  await app.close();
+});
+
+describe('API error handling', () => {
+  test('a non-JSON body returns 415 instead of being silently ignored', async () => {
+    const res = await fetch(`${app.baseUrl}/accounts`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'first_name=Ada&last_name=Lovelace&starting_balance=100.00',
+    });
+    assert.equal(res.status, 415);
+    assert.deepEqual(await res.json(), {
+      error: 'unsupported_media_type',
+      message: 'Request body must be JSON (Content-Type: application/json)',
+    });
+  });
+
+  test('an unknown route returns a JSON 404 with a message', async () => {
+    const res = await app.request('GET', '/nope');
+    assert.equal(res.status, 404);
+    assert.deepEqual(res.body, { error: 'not_found', message: 'No route for GET /nope' });
+  });
+
+  test('a wrong method on a known route returns 405 with an Allow header', async () => {
+    const res = await app.request('DELETE', '/accounts/00000000-0000-0000-0000-000000000000');
+    assert.equal(res.status, 405);
+    assert.equal(res.headers.get('allow'), 'GET, HEAD');
+    assert.deepEqual(res.body, { error: 'method_not_allowed', message: 'Method not allowed. Allowed: GET, HEAD' });
+  });
+});
