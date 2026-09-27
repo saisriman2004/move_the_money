@@ -46,6 +46,8 @@ export interface TestApp {
   request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<Response>;
   /** Creates an account through the API and returns its id. */
   createAccount(startingBalance?: string): Promise<string>;
+  /** Reads an account's balance straight from the database. */
+  balance(accountId: string): Promise<string>;
   query<T extends object = any>(sql: string, params?: unknown[]): Promise<T[]>;
   close(): Promise<void>;
 }
@@ -86,6 +88,11 @@ export async function startTestApp(): Promise<TestApp> {
       });
       if (res.status !== 201) throw new Error(`createAccount failed: ${JSON.stringify(res.body)}`);
       return res.body.id;
+    },
+    async balance(accountId) {
+      const { rows } = await pool.query<{ balance: string }>('SELECT balance FROM accounts WHERE id = $1', [accountId]);
+      if (!rows[0]) throw new Error(`No account ${accountId}`);
+      return rows[0].balance;
     },
     async query(sql, params) {
       return (await pool.query(sql, params)).rows;

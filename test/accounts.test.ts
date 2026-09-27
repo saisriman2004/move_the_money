@@ -167,11 +167,13 @@ describe('POST /accounts', () => {
   });
 
   test('a rejected request creates no account', async () => {
-    const before = await app.query<{ count: string }>('SELECT count(*) FROM accounts');
-    await create({ ...valid, starting_balance: '-5' });
-    await create({ ...valid, first_name: '' });
-    const after = await app.query<{ count: string }>('SELECT count(*) FROM accounts');
-    assert.equal(after[0]!.count, before[0]!.count);
+    // Other test files create accounts in parallel, so count only ones with this unique name.
+    const marker = `reject-${Date.now()}-${Math.random()}`;
+    await create({ ...valid, last_name: marker, starting_balance: '-5' });
+    await create({ ...valid, last_name: marker, first_name: '' });
+    await create({ ...valid, last_name: marker, starting_balance: 5 });
+    const rows = await app.query<{ count: string }>('SELECT count(*) FROM accounts WHERE last_name = $1', [marker]);
+    assert.equal(rows[0]!.count, '0');
   });
 });
 

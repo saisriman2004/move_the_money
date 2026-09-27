@@ -23,3 +23,12 @@ export function parseAmount(value: unknown, field: string): string {
   }
   return value;
 }
+
+/** Like parseAmount, but also rejects zero. */
+export function parsePositiveAmount(value: unknown, field: string): string {
+  const amount = parseAmount(value, field);
+  if (/^0+(\.0+)?$/.test(amount)) {
+    throw new HttpError(400, 'invalid_amount', `${field} must be greater than zero`);
+  }
+  return amount;
+}
