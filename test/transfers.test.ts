@@ -99,7 +99,7 @@ describe('POST /transfers', () => {
     assert.equal(await transferCount(from), 0);
   });
 
-  test('an unknown destination returns 404 and rolls back the debit', async () => {
+  test('an unknown destination returns 404 and leaves the source unchanged', async () => {
     const from = await app.createAccount('100.00');
 
     const res = await transfer({ from_account_id: from, to_account_id: MISSING_ID, amount: '10' });
