@@ -45,7 +45,7 @@ describe('POST /transfers', () => {
 
   test('records the transfer in the database', async () => {
     const from = await app.createAccount('10.00');
-    const to = await app.createAccount('0');
+    const to = await app.createEmptyAccount();
     const res = await transfer({ from_account_id: from, to_account_id: to, amount: '1' });
     const rows = await app.query('SELECT from_account_id, to_account_id, amount FROM transfers WHERE id = $1', [res.body.id]);
     assert.deepEqual(rows, [{ from_account_id: from, to_account_id: to, amount: '1.00' }]);
@@ -53,7 +53,7 @@ describe('POST /transfers', () => {
 
   test('can transfer the entire balance, leaving exactly 0.00', async () => {
     const from = await app.createAccount('42.42');
-    const to = await app.createAccount('0');
+    const to = await app.createEmptyAccount();
     assert.equal((await transfer({ from_account_id: from, to_account_id: to, amount: '42.42' })).status, 201);
     assert.equal(await app.balance(from), '0.00');
     assert.equal(await app.balance(to), '42.42');
@@ -61,7 +61,7 @@ describe('POST /transfers', () => {
 
   test('has no floating-point drift across many small transfers', async () => {
     const from = await app.createAccount('1.00');
-    const to = await app.createAccount('0');
+    const to = await app.createEmptyAccount();
     for (let i = 0; i < 10; i++) {
       assert.equal((await transfer({ from_account_id: from, to_account_id: to, amount: '0.10' })).status, 201);
     }
@@ -81,7 +81,7 @@ describe('POST /transfers', () => {
 
   test('accepts uppercase account ids', async () => {
     const from = await app.createAccount('10.00');
-    const to = await app.createAccount('0');
+    const to = await app.createEmptyAccount();
     const res = await transfer({ from_account_id: from.toUpperCase(), to_account_id: to.toUpperCase(), amount: '1' });
     assert.equal(res.status, 201);
     assert.equal(res.body.from_account_id, from);
@@ -90,7 +90,7 @@ describe('POST /transfers', () => {
 
   test('insufficient funds returns 422 and changes nothing', async () => {
     const from = await app.createAccount('50.00');
-    const to = await app.createAccount('0');
+    const to = await app.createEmptyAccount();
 
     const res = await transfer({ from_account_id: from, to_account_id: to, amount: '50.01' });
 
@@ -113,7 +113,7 @@ describe('POST /transfers', () => {
   });
 
   test('an unknown source returns 404 and credits nothing', async () => {
-    const to = await app.createAccount('0');
+    const to = await app.createEmptyAccount();
 
     const res = await transfer({ from_account_id: MISSING_ID, to_account_id: to, amount: '10' });
 
@@ -129,7 +129,7 @@ describe('POST /transfers validation', () => {
 
   before(async () => {
     from = await app.createAccount('100.00');
-    to = await app.createAccount('0');
+    to = await app.createEmptyAccount();
   });
 
   async function expectRejected(body: unknown, status: number, error: string) {

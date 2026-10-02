@@ -44,12 +44,14 @@ export interface TestApp {
   baseUrl: string;
   /** Sends a JSON request. A string body is sent as-is, so tests can send malformed JSON. */
   request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<Response>;
+  /** Creates an account through the API and returns its id. The balance must be greater than zero. */
+  createAccount(startingBalance: string): Promise<string>;
   /**
-   * Creates an account and returns its id. Goes through the API, except for a
-   * zero balance: the API only opens accounts with money in them, so empty
-   * accounts (a state reachable by spending) are inserted directly.
+   * Inserts an account with a 0.00 balance directly into the database. The API
+   * only opens accounts with money in them, but 0.00 is a valid state (an
+   * account can spend down to it), and transfer tests need empty destinations.
    */
-  createAccount(startingBalance?: string): Promise<string>;
+  createEmptyAccount(): Promise<string>;
   /** Reads an account's balance straight from the database. */
   balance(accountId: string): Promise<string>;
   query<T extends object = any>(sql: string, params?: unknown[]): Promise<T[]>;
@@ -86,13 +88,7 @@ export async function startTestApp(): Promise<TestApp> {
       const text = await res.text();
       return { status: res.status, headers: res.headers, body: text ? JSON.parse(text) : undefined };
     },
-    async createAccount(startingBalance = '0') {
-      if (/^0+(\.0+)?$/.test(startingBalance)) {
-        const { rows } = await pool.query<{ id: string }>(
-          `INSERT INTO accounts (first_name, last_name, balance) VALUES ('Test', 'User', 0) RETURNING id`,
-        );
-        return rows[0]!.id;
-      }
+    async createAccount(startingBalance) {
       const res = await app.request('POST', '/accounts', {
         first_name: 'Test',
         last_name: 'User',
@@ -100,6 +96,12 @@ export async function startTestApp(): Promise<TestApp> {
       });
       if (res.status !== 201) throw new Error(`createAccount failed: ${JSON.stringify(res.body)}`);
       return res.body.id;
+    },
+    async createEmptyAccount() {
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO accounts (first_name, last_name, balance) VALUES ('Test', 'User', 0) RETURNING id`,
+      );
+      return rows[0]!.id;
     },
     async balance(accountId) {
       const { rows } = await pool.query<{ balance: string }>('SELECT balance FROM accounts WHERE id = $1', [accountId]);

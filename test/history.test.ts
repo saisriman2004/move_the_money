@@ -62,7 +62,7 @@ describe('GET /accounts/:id/transactions', () => {
 
   test('amounts are strings and every field is present', async () => {
     const a = await app.createAccount('10.00');
-    const b = await app.createAccount('0');
+    const b = await app.createEmptyAccount();
     await transfer(a, b, '0.10');
     const [item] = (await history(a)).body.data;
     assert.deepEqual(Object.keys(item).sort(), ['amount', 'created_at', 'direction', 'from_account_id', 'id', 'to_account_id']);
@@ -79,16 +79,16 @@ describe('GET /accounts/:id/transactions', () => {
   });
 
   test('orders newest first', async () => {
-    const a = await app.createAccount('0');
-    const b = await app.createAccount('0');
+    const a = await app.createEmptyAccount();
+    const b = await app.createEmptyAccount();
     const ids = await seedTransfers(a, b, 5);
     const data = (await history(a)).body.data;
     assert.deepEqual(data.map((t: { id: string }) => t.id), ids.reverse());
   });
 
   test('orders transfers with identical timestamps consistently', async () => {
-    const a = await app.createAccount('0');
-    const b = await app.createAccount('0');
+    const a = await app.createEmptyAccount();
+    const b = await app.createEmptyAccount();
     await app.query(
       `INSERT INTO transfers (from_account_id, to_account_id, amount, created_at)
        SELECT $1, $2, 1, TIMESTAMPTZ '2026-01-01' FROM generate_series(1, 10)`,
@@ -102,8 +102,8 @@ describe('GET /accounts/:id/transactions', () => {
   });
 
   test('returns the newest 50 by default', async () => {
-    const a = await app.createAccount('0');
-    const b = await app.createAccount('0');
+    const a = await app.createEmptyAccount();
+    const b = await app.createEmptyAccount();
     const ids = await seedTransfers(a, b, 60);
     const data = (await history(a)).body.data;
     assert.equal(data.length, 50);
@@ -111,8 +111,8 @@ describe('GET /accounts/:id/transactions', () => {
   });
 
   test('honours limit, from 1 up to 100', async () => {
-    const a = await app.createAccount('0');
-    const b = await app.createAccount('0');
+    const a = await app.createEmptyAccount();
+    const b = await app.createEmptyAccount();
     const ids = await seedTransfers(a, b, 110);
     assert.deepEqual((await history(a, '?limit=1')).body.data.map((t: { id: string }) => t.id), [ids[109]]);
     assert.equal((await history(a, '?limit=100')).body.data.length, 100);
@@ -120,7 +120,7 @@ describe('GET /accounts/:id/transactions', () => {
 
   test('works with an uppercase account id', async () => {
     const a = await app.createAccount('10.00');
-    const b = await app.createAccount('0');
+    const b = await app.createEmptyAccount();
     await transfer(a, b, '1.00');
     const data = (await history(a.toUpperCase())).body.data;
     assert.equal(data.length, 1);
@@ -141,7 +141,7 @@ describe('GET /accounts/:id/transactions', () => {
 
   for (const limit of ['0', '101', '-1', '1.5', 'abc', '', '1000', '1e2', '5&limit=6']) {
     test(`rejects limit=${limit} with 400`, async () => {
-      const a = await app.createAccount('0');
+      const a = await app.createEmptyAccount();
       const res = await history(a, `?limit=${limit}`);
       assert.equal(res.status, 400);
       assert.deepEqual(res.body, { error: 'invalid_limit', message: 'limit must be an integer from 1 to 100' });

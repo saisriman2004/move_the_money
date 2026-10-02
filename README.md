@@ -60,7 +60,8 @@ While the app runs, every request is logged as one JSON line to the console and 
 ```
 
 - Successful requests are logged as `info`, 4xx responses as `warn` (with the `error_code` that was returned), and 5xx responses as `error`.
-- An unexpected 500 also writes an `unhandled error` line with the request body, the error message, the stack trace and any Postgres error code or constraint. None of this is sent to the client.
+- An unexpected 500 also writes an `unhandled error` line with the error message, the stack trace and any Postgres error code or constraint. None of this is sent to the client.
+- Request bodies and idempotency keys are never logged, because bodies carry account ids and amounts. The request id is enough to correlate a log line with a client's response.
 - Every response has an `X-Request-Id` header. Clients can also send their own. To find everything about one request, search for its id:
 
 ```bash
@@ -76,7 +77,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 109 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 114 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -87,7 +88,8 @@ The suite has 109 tests. Most send real HTTP requests to the app running on a ra
 | `concurrency.test.ts` | Concurrent overspending, 100 opposite A↔B transfers without deadlock, total money conserved |
 | `history.test.ts` | Transaction history: direction labels, ordering, `limit` |
 | `errors.test.ts` | 415, 404 and 405 responses |
-| `logging.test.ts` | Requests are written to the log file with id, status and error code |
+| `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
+| `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
 
 The concurrency tests run each scenario 5 times, because a race can pass by luck in a single run. During development, each important safeguard (lock ordering, the guarded debit, the idempotency lock) was removed on purpose to confirm that the tests fail without it.
 
@@ -182,6 +184,11 @@ curl 'localhost:3000/accounts/…/transactions?limit=10'
 
 `limit` is optional, from 1 to 100, and defaults to 50.
 
+### `GET /health` and `GET /ready`: for load balancers and deploy platforms
+
+- `/health` returns `200 {"status": "ok"}` whenever the process is up. It never touches the database, so a database outage doesn't get the process restarted.
+- `/ready` returns `200 {"status": "ready"}` when the database is reachable, and `503 not_ready` when it isn't, so traffic can be held back until the app can do real work.
+
 ### Errors
 
 Every error has the same shape:
@@ -211,6 +218,7 @@ Every error has the same shape:
 | 415 | `unsupported_media_type` | The body isn't `application/json` |
 | 422 | `insufficient_funds` | The source balance is lower than the amount |
 | 500 | `internal_error` | Unexpected. Details are logged on the server and never sent to the client. |
+| 503 | `not_ready` | `GET /ready` only: the database is unreachable |
 
 ---
 
@@ -295,7 +303,7 @@ The hash only turns the key into a lock number. If two different keys hash to th
 2. Expire idempotency keys after about 24 hours with a scheduled cleanup.
 3. Add cursor pagination to history (keyset on `created_at, id`) once accounts have long histories.
 4. Ship logs to a central store instead of a local file, and rotate `logs/app.log`, which currently grows forever.
-5. Add a health endpoint for deployment, and graceful shutdown that drains in-flight transactions.
+5. Add graceful shutdown that drains in-flight transactions before the process exits.
 6. Run the test suite in CI against a PostgreSQL service container.
 7. Add a nightly check that the sum of all balances equals the sum of all starting balances.
 

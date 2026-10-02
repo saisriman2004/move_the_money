@@ -40,3 +40,36 @@ test('each request is written to the log file with its id, status and error code
   assert.equal(notFound.status, 404);
   assert.equal(notFound.error_code, 'account_not_found');
 });
+
+test('logs never contain the request body or the idempotency key', async () => {
+  const { errorHandler } = await import('../src/middleware/errorHandler.js');
+
+  // A request that reaches the log as a 400, carrying a key and a body.
+  await app.request(
+    'POST',
+    '/transfers',
+    { from_account_id: 'not-a-uuid', to_account_id: 'x', amount: '123.45' },
+    { 'Idempotency-Key': 'secret-key-xyz', 'X-Request-Id': 'no-payload-400' },
+  );
+
+  // An unexpected 500, driven through the error handler directly.
+  const res = {
+    locals: { requestId: 'no-payload-500' },
+    status() { return res; },
+    json() { return res; },
+  };
+  const req = { method: 'POST', originalUrl: '/transfers', body: { from_account_id: 'acct-secret', amount: '987.65' } };
+  errorHandler(new Error('boom'), req as never, res as never, () => {});
+  await sleep(50);
+
+  const text = readFileSync(logFile, 'utf8');
+  const lines = text.trim().split('\n').map((l) => JSON.parse(l));
+  const unhandled = lines.find((l) => l.request_id === 'no-payload-500');
+  assert.equal(unhandled.msg, 'unhandled error');
+  assert.equal(unhandled.error, 'boom');
+  assert.ok(!('body' in unhandled));
+  assert.ok(lines.some((l) => l.request_id === 'no-payload-400' && l.status === 400));
+  for (const secret of ['acct-secret', '987.65', '123.45', 'secret-key-xyz']) {
+    assert.ok(!text.includes(secret), `log file contains ${secret}`);
+  }
+});

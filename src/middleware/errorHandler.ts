@@ -20,13 +20,14 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     res.status(413).json({ error: 'payload_too_large', message: 'Request body is too large' });
     return;
   }
-  // Unexpected: log everything needed to debug it, but tell the client nothing internal.
+  // Unexpected: log what's needed to debug it, tell the client nothing internal.
+  // The request body is deliberately not logged: it carries account ids and amounts.
+  // The request id links this line to the client's response for anything more.
   res.locals.errorCode = 'internal_error';
   logger.error('unhandled error', {
     request_id: res.locals.requestId,
     method: req.method,
     path: req.originalUrl,
-    body: req.body,
     ...errorFields(err),
   });
   res.status(500).json({ error: 'internal_error', message: 'Something went wrong' });

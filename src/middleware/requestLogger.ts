@@ -26,7 +26,6 @@ export const requestLogger: RequestHandler = (req, res, next) => {
       duration_ms: Number((process.hrtime.bigint() - started) / 1000n) / 1000,
       // Set by the error handler, so a 4xx line says which rule the request broke.
       error_code: res.locals.errorCode,
-      idempotency_key: req.get('Idempotency-Key'),
     };
     if (res.statusCode >= 500) logger.error('request failed', fields);
     else if (res.statusCode >= 400) logger.warn('request rejected', fields);

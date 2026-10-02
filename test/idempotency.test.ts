@@ -30,7 +30,7 @@ async function transferCount(key: string): Promise<number> {
 describe('Idempotency-Key on POST /transfers', () => {
   test('a replay returns the original transfer and moves money only once', async () => {
     const from = await app.createAccount('100.00');
-    const to = await app.createAccount('0');
+    const to = await app.createEmptyAccount();
     const key = randomUUID();
 
     const first = await transfer({ from, to, amount: '30.00' }, key);
@@ -53,7 +53,7 @@ describe('Idempotency-Key on POST /transfers', () => {
   ] as const) {
     test(`"${first}" then "${second}" count as the same request`, async () => {
       const from = await app.createAccount('500.00');
-      const to = await app.createAccount('0');
+      const to = await app.createEmptyAccount();
       const key = randomUUID();
 
       const a = await transfer({ from, to, amount: first }, key);
@@ -68,7 +68,7 @@ describe('Idempotency-Key on POST /transfers', () => {
 
   test('uppercase account ids count as the same request', async () => {
     const from = await app.createAccount('50.00');
-    const to = await app.createAccount('0');
+    const to = await app.createEmptyAccount();
     const key = randomUUID();
 
     const first = await transfer({ from, to, amount: '5' }, key);
@@ -87,7 +87,7 @@ describe('Idempotency-Key on POST /transfers', () => {
     test(`reusing a key with ${label} returns 409 and moves nothing`, async () => {
       const from = await app.createAccount('100.00');
       const to = await app.createAccount('100.00');
-      const other = await app.createAccount('0');
+      const other = await app.createEmptyAccount();
       const key = randomUUID();
       const original = { from, to, amount: '10.00' };
       assert.equal((await transfer(original, key)).status, 201);
@@ -108,7 +108,7 @@ describe('Idempotency-Key on POST /transfers', () => {
 
   test('a failed request does not consume its key', async () => {
     const from = await app.createAccount('10.00');
-    const to = await app.createAccount('0');
+    const to = await app.createEmptyAccount();
     const key = randomUUID();
 
     const failed = await transfer({ from, to, amount: '25.00' }, key);
@@ -127,7 +127,7 @@ describe('Idempotency-Key on POST /transfers', () => {
     // Without a key, a retry and a second intentional transfer look identical,
     // so the API refuses to guess: sending the same transfer twice can't apply it twice.
     const from = await app.createAccount('10.00');
-    const to = await app.createAccount('0');
+    const to = await app.createEmptyAccount();
     for (let i = 0; i < 2; i++) {
       const res = await transfer({ from, to, amount: '1' });
       assert.equal(res.status, 400);
@@ -138,7 +138,7 @@ describe('Idempotency-Key on POST /transfers', () => {
 
   test('keys are case-sensitive', async () => {
     const from = await app.createAccount('10.00');
-    const to = await app.createAccount('0');
+    const to = await app.createEmptyAccount();
     const key = `Key-${randomUUID()}`;
     const a = await transfer({ from, to, amount: '1' }, key);
     const b = await transfer({ from, to, amount: '1' }, key.toLowerCase());
@@ -154,7 +154,7 @@ describe('Idempotency-Key on POST /transfers', () => {
   ] as const) {
     test(`rejects a key that is ${label} with 400 and moves nothing`, async () => {
       const from = await app.createAccount('10.00');
-      const to = await app.createAccount('0');
+      const to = await app.createEmptyAccount();
       const res = await transfer({ from, to, amount: '1' }, key);
       assert.equal(res.status, 400);
       assert.equal(res.body.error, 'invalid_idempotency_key');
@@ -164,7 +164,7 @@ describe('Idempotency-Key on POST /transfers', () => {
 
   test('accepts a key of exactly 255 printable characters', async () => {
     const from = await app.createAccount('10.00');
-    const to = await app.createAccount('0');
+    const to = await app.createEmptyAccount();
     const res = await transfer({ from, to, amount: '1' }, `${randomUUID()}${'~'.repeat(219)}`);
     assert.equal(res.status, 201);
   });
@@ -176,7 +176,7 @@ describe('Idempotency-Key under concurrency', () => {
     // can serialize the requests by accident and hide a race.
     for (let round = 0; round < 5; round++) {
       const from = await app.createAccount('100.00');
-      const to = await app.createAccount('0');
+      const to = await app.createEmptyAccount();
       const key = randomUUID();
 
       const results = await Promise.all(Array.from({ length: 20 }, () => transfer({ from, to, amount: '7.00' }, key)));
@@ -190,12 +190,34 @@ describe('Idempotency-Key under concurrency', () => {
     }
   });
 
+  test('one key used concurrently for two different transfers gives one 201 and one 409', async () => {
+    // The two requests touch different accounts, so the account row locks never make them wait
+    // for each other. Only the lock on the key itself turns the loser into a clean 409
+    // instead of a unique-constraint 500.
+    for (let round = 0; round < 5; round++) {
+      const [a, c] = await Promise.all([app.createAccount('100.00'), app.createAccount('100.00')]);
+      const [b, d] = await Promise.all([app.createEmptyAccount(), app.createEmptyAccount()]);
+      const key = randomUUID();
+
+      const results = await Promise.all([
+        transfer({ from: a, to: b, amount: '10.00' }, key),
+        transfer({ from: c, to: d, amount: '10.00' }, key),
+      ]);
+
+      assert.deepEqual(results.map((r) => r.status).sort(), [201, 409], `round ${round}: ${JSON.stringify(results.map((r) => r.body))}`);
+      assert.equal(await transferCount(key), 1);
+      // Only the winner's money moved.
+      const moved = [await app.balance(a), await app.balance(c)].sort();
+      assert.deepEqual(moved, ['100.00', '90.00'].sort());
+    }
+  });
+
   test('two concurrent retries that spend the whole balance both get the transfer, not insufficient_funds', async () => {
     // The case that rules out "insert, catch the unique violation, re-read":
     // the retry would fail its balance check before ever reaching the insert.
     for (let round = 0; round < 10; round++) {
       const from = await app.createAccount('100.00');
-      const to = await app.createAccount('0');
+      const to = await app.createEmptyAccount();
       const key = randomUUID();
 
       const [a, b] = await Promise.all([

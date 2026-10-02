@@ -4,6 +4,7 @@ import { notFound } from './middleware/notFound';
 import { requestLogger } from './middleware/requestLogger';
 import { requireJson } from './middleware/requireJson';
 import { accountsRouter } from './routes/accounts';
+import { healthRouter } from './routes/health';
 import { transfersRouter } from './routes/transfers';
 
 export function createApp() {
@@ -13,6 +14,7 @@ export function createApp() {
   app.use(requireJson);
   app.use(express.json());
 
+  app.use(healthRouter);
   app.use('/accounts', accountsRouter);
   app.use('/transfers', transfersRouter);
   app.use(notFound);

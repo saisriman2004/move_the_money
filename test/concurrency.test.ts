@@ -38,8 +38,8 @@ describe('concurrent transfers', () => {
   test('two concurrent 80.00 transfers from 100.00 to different destinations: exactly one succeeds', async () => {
     for (let round = 0; round < ROUNDS; round++) {
       const source = await app.createAccount('100.00');
-      const destA = await app.createAccount('0');
-      const destB = await app.createAccount('0');
+      const destA = await app.createEmptyAccount();
+      const destB = await app.createEmptyAccount();
 
       const results = await Promise.all([transfer(source, destA, '80.00'), transfer(source, destB, '80.00')]);
 
@@ -54,7 +54,7 @@ describe('concurrent transfers', () => {
   test('25 concurrent 1.00 transfers from 10.00: exactly 10 succeed and the balance ends at 0.00', async () => {
     for (let round = 0; round < ROUNDS; round++) {
       const source = await app.createAccount('10.00');
-      const dest = await app.createAccount('0');
+      const dest = await app.createEmptyAccount();
 
       const results = await Promise.all(Array.from({ length: 25 }, () => transfer(source, dest, '1.00')));
 
