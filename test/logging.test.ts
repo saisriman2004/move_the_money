@@ -17,7 +17,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 test('each request is written to the log file with its id, status and error code', async () => {

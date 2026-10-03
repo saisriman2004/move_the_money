@@ -14,7 +14,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 /** Publishes nothing; just remembers what it was given. */

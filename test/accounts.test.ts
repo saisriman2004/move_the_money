@@ -9,7 +9,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 const valid = { first_name: 'Ada', last_name: 'Lovelace', starting_balance: '100.00' };

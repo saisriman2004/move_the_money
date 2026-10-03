@@ -48,7 +48,7 @@ before(async () => {
 after(async () => {
   receiver.closeAllConnections();
   await new Promise((resolve) => receiver.close(resolve));
-  await app.close();
+  await app?.close();
 });
 
 beforeEach(async () => {

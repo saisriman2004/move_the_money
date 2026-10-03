@@ -11,7 +11,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 const NO_AUTH = { authorization: '' };

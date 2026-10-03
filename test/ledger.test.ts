@@ -15,7 +15,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 function transfer(from: string, to: string, amount: string) {

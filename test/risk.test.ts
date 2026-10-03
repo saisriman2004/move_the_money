@@ -20,7 +20,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 const rules = { reviewAmount: '100.00', rejectAmount: '1000.00', maxTransfersPerMinute: 3, newAccountHours: 24, newAccountReviewAmount: '50.00', maxRecentRejections: 2 };

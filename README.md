@@ -46,13 +46,13 @@ Workers exit when they lose RabbitMQ and Docker restarts them (`restart: unless-
 
 ### Running the code directly
 
-### Requirements
+#### Requirements
 
 - Node.js 22 or newer
 - PostgreSQL 13 or newer (developed on 18.4 with [Postgres.app](https://postgresapp.com/))
-- Docker, for RabbitMQ and Redis: `docker compose up -d rabbitmq redis`
+- Docker, for RabbitMQ and Redis: `docker compose up -d rabbitmq redis` (needed by the API, the workers and the tests)
 
-### Setup
+#### Setup
 
 ```bash
 npm install

@@ -36,15 +36,19 @@ before(async () => {
 });
 
 after(async () => {
-  const channel = await admin.createChannel();
-  for (const c of consumers) {
-    await c.stop();
-    for (const q of [c.topology.queue, ...c.topology.retryQueues, c.topology.deadLetterQueue]) await channel.deleteQueue(q);
+  // Each step is guarded: if setup failed partway (e.g. RabbitMQ unreachable),
+  // cleanup must still close what did open, or the process never exits.
+  if (admin) {
+    const channel = await admin.createChannel();
+    for (const c of consumers) {
+      await c.stop();
+      for (const q of [c.topology.queue, ...c.topology.retryQueues, c.topology.deadLetterQueue]) await channel.deleteQueue(q);
+    }
+    await channel.deleteExchange(`${PREFIX}events`);
+    await admin.close();
   }
-  await channel.deleteExchange(`${PREFIX}events`);
-  await admin.close();
-  await publisher.close();
-  await app.close();
+  await publisher?.close();
+  await app?.close();
 });
 
 async function startConsumer(bindings: string[], handler: (event: DomainEvent, client: PoolClient) => Promise<void>) {

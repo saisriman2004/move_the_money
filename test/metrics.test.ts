@@ -14,7 +14,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 async function scrape(): Promise<string> {

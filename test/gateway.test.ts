@@ -12,7 +12,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 const raw = (path: string, init: RequestInit = {}) => fetch(app.baseUrl + path, init);

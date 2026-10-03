@@ -9,7 +9,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 test('GET /health returns 200 without needing the database', async () => {

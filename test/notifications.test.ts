@@ -15,7 +15,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 const as = (user: TestUser) => ({ authorization: `Bearer ${user.token}` });

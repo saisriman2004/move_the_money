@@ -10,7 +10,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 function transfer(body: unknown) {

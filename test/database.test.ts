@@ -20,7 +20,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 /** Inserts an account directly and returns its id. */

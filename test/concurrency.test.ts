@@ -10,7 +10,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 // Each scenario runs several rounds: a race can hide in any single round,

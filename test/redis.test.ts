@@ -19,7 +19,7 @@ before(async () => {
 });
 
 after(async () => {
-  await app.close();
+  await app?.close();
 });
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
