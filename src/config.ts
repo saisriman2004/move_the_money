@@ -103,6 +103,7 @@ export const config = {
     allowPrivateUrls: process.env.WEBHOOK_ALLOW_PRIVATE_URLS === 'true',
     maxEndpointsPerUser: 10,
   },
+  reconciliationIntervalMs: parsePositiveInt('RECONCILIATION_INTERVAL_MS', 3_600_000),
   risk: {
     reviewAmount: parseAmountSetting('RISK_REVIEW_AMOUNT', '1000.00'),
     rejectAmount: parseAmountSetting('RISK_REJECT_AMOUNT', '10000.00'),

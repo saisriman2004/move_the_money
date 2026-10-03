@@ -16,7 +16,9 @@
     "lint": "eslint .",
     "worker:outbox": "tsx src/workers/outbox-relay.ts",
     "worker:webhooks": "tsx src/workers/webhooks.ts",
-    "worker:notifications": "tsx src/workers/notifications.ts"
+    "worker:notifications": "tsx src/workers/notifications.ts",
+    "reconcile": "tsx scripts/reconcile.ts",
+    "worker:reconciliation": "tsx src/workers/reconciliation.ts"
   },
   "engines": {
     "node": ">=22"

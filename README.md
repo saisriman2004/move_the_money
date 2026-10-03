@@ -44,6 +44,8 @@ npm run dev                   # http://localhost:3000
 | `npm run lint` | Runs ESLint |
 | `npm run worker:outbox` | Runs the outbox relay worker |
 | `npm run worker:notifications` | Runs the notification worker |
+| `npm run reconcile` | Audits the ledger once, prints the report, exits 1 on any mismatch |
+| `npm run worker:reconciliation` | Audits the ledger every `RECONCILIATION_INTERVAL_MS` (default hourly) |
 | `npm run worker:webhooks` | Runs the webhook worker (event fan-out and HTTP delivery) |
 | `npm test` | Runs the test suite |
 | `npm run test:log` | Runs the tests and also writes the results to `test-results.log` |
@@ -102,7 +104,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 227 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 233 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -122,6 +124,7 @@ The suite has 227 tests. Most send real HTTP requests to the app running on a ra
 | `risk.test.ts` | Each risk rule as a pure function; approve / review / reject on real transfers; velocity limit under 10 concurrent transfers; repeated rejections; replays and refunds skip risk |
 | `webhooks.test.ts` | Endpoint management and URL safety, fan-out to the right users, signed delivery, retries with growing delays, timeouts, dead deliveries, concurrent dispatchers, and API → RabbitMQ → webhook end to end. Uses its own database |
 | `notifications.test.ts` | Message wording per event, one notification per user per event, listing / unread count / mark read, ownership, and a real transfer through RabbitMQ. Uses its own database |
+| `reconciliation.test.ts` | A clean ledger reconciles; edited balances, unbalanced transfers, entries not matching amounts and missing entries are each reported; no false alarms during concurrent traffic. Uses its own database |
 | `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
 | `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
 
@@ -413,6 +416,18 @@ It's a synchronous module rather than a separate service, because the decision m
 - **Rate limits.** 100 requests per minute per logged-in user, and 10 login or registration attempts per minute per IP. The limiter is a sliding-window log run as a single Lua script, so concurrent requests can't both take the last slot. Responses carry `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; a rejected request gets `429` with `Retry-After`.
 - **Account cache.** `GET /accounts/:id` is cached for 30 seconds (`X-Cache: HIT` or `MISS`). Every transfer and refund deletes both accounts' entries after it commits. A cache hit still checks ownership.
 - **Redis is never the source of truth.** Transfers always read and lock balances in PostgreSQL. If Redis is down, the limiter allows requests and the cache is bypassed (fail-open), with commands timing out after 250 ms so a slow Redis can't stall the API.
+
+### Reconciliation
+
+`npm run reconcile` (or the reconciliation worker, hourly) audits the books:
+
+1. every account's `balance` equals its balance rebuilt from the ledger;
+2. every transfer's debits equal its credits;
+3. every transfer's entries move exactly its amount plus fee;
+4. no transfer is missing its entries;
+5. all balances, system accounts included, sum to exactly zero.
+
+Each check is one SQL statement, so a transfer committing mid-run can't produce a false alarm; together they run in one REPEATABLE READ transaction so the report describes a single moment. Every run is stored in `reconciliation_runs` with its issues, and a mismatch is logged at error level for monitoring to alert on.
 
 ### Concurrency strategy
 

@@ -23,7 +23,10 @@ export async function closePool(): Promise<void> {
  * Commits if fn resolves, rolls back if it throws, and always returns the
  * client to the pool.
  */
-export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+export async function withTransaction<T>(
+  fn: (client: PoolClient) => Promise<T>,
+  options: { isolation?: 'read committed' | 'repeatable read' | 'serializable'; readOnly?: boolean } = {},
+): Promise<T> {
   const client = await pool.connect();
   let broken: Error | undefined;
   // If the connection drops while checked out, pg emits 'error' on the client.
@@ -34,7 +37,10 @@ export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>)
   };
   client.on('error', onConnectionError);
   try {
-    await client.query('BEGIN');
+    const mode = [options.isolation && `ISOLATION LEVEL ${options.isolation.toUpperCase()}`, options.readOnly && 'READ ONLY']
+      .filter(Boolean)
+      .join(' ');
+    await client.query(`BEGIN ${mode}`.trim());
     const result = await fn(client);
     await client.query('COMMIT');
     return result;
