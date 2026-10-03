@@ -21,8 +21,17 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      rabbitmq:
+        image: rabbitmq:4
+        ports: ['5672:5672']
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/move_money
+      RABBITMQ_URL: amqp://guest:guest@localhost:5672
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

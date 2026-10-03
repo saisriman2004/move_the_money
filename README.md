@@ -21,6 +21,7 @@ See [BUILD_LOG.md](BUILD_LOG.md) for how this was built, including how AI was us
 
 - Node.js 22 or newer
 - PostgreSQL 13 or newer (developed on 18.4 with [Postgres.app](https://postgresapp.com/))
+- Docker, for RabbitMQ and Redis: `docker compose up -d` (see `docker-compose.yml`)
 
 ### Setup
 
@@ -53,6 +54,9 @@ npm run dev                   # http://localhost:3000
 | `PORT` | `3000` | Must be a valid port number |
 | `JWT_SECRET` | none (required by the server) | At least 32 characters; signs access tokens. Migrations don't need it |
 | `JWT_TTL_SECONDS` | `3600` | Access token lifetime |
+| `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672` | Message broker for domain events |
+| `AMQP_PREFIX` | `mtm.` | Prefix for every exchange and queue name |
+| `CONSUMER_RETRY_DELAYS_MS` | `1000,5000,25000` | Delays before each retry of a failing message; after the last it is dead-lettered |
 | `TRANSFER_FEE_PERCENT` | `0` | Fee charged to the sender on top of each transfer, e.g. `1` or `0.25`. `.env.example` sets `1` |
 | `TEST_DATABASE_URL` | `DATABASE_URL` with `_test` appended to the database name | Used only by the tests |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` or `silent` |
@@ -84,7 +88,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 169 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 176 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -99,6 +103,7 @@ The suite has 169 tests. Most send real HTTP requests to the app running on a ra
 | `fees-refunds.test.ts` | 1% fees and rounding, fee ledger entries, balance must cover amount + fee, refunds (ownership, once only, concurrent, replay, insufficient funds) |
 | `ledger.test.ts` | Balanced entries per transfer, balances rebuilt from the ledger, immutable entries, unbalanced writes rejected at commit, system accounts |
 | `outbox.test.ts` | Events written in the money transaction (and rolled back with it), relay ordering, retries after a failed publish, concurrent relays publishing each event exactly once. Uses its own database |
+| `messaging.test.ts` | Against a real RabbitMQ: outbox → broker → consumer with event and correlation ids, routing by event type, duplicate deliveries processed once, delayed retries, dead-lettering, broker outages. Uses its own database |
 | `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
 | `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
 
@@ -337,7 +342,17 @@ Every movement of money is a row in `transfers` plus balanced rows in `ledger_en
 
 Every money movement also writes a domain event (`account.created`, `transfer.completed`, `transfer.refunded`) into `outbox_events`, **in the same transaction**. An event therefore exists if and only if the money moved: a rolled-back transfer leaves no event, and a committed one can't lose its event if the broker is down.
 
-A separate relay worker (`npm run worker:outbox`) publishes pending events oldest first and marks them published. It claims rows with `FOR UPDATE SKIP LOCKED`, so several relays can run at once without publishing an event twice. Delivery is at-least-once: if the relay dies after publishing but before recording it, the event is sent again, so consumers deduplicate by event id.
+A separate relay worker (`npm run worker:outbox`) publishes pending events to RabbitMQ oldest first, waits for the broker's publisher confirm, and only then marks them published. It claims rows with `FOR UPDATE SKIP LOCKED`, so several relays can run at once without publishing an event twice. Delivery is at-least-once: if the relay dies after publishing but before recording it, the event is sent again, so consumers deduplicate by event id.
+
+### Event processing with RabbitMQ
+
+Events are published to a topic exchange (`mtm.events`) with the event type as routing key. Each consumer has its own durable queue bound to the types it needs, so every consumer gets its own copy.
+
+- **Idempotent consumers.** Each event id is recorded in `processed_events` in the same transaction as the consumer's own writes. A redelivered event finds its row and is acknowledged without running the handler again.
+- **Retries with backoff.** A failing message is re-published to a delay queue (1s, then 5s, then 25s); when the delay expires it returns to the consumer's queue. After the last delay it goes to the consumer's dead-letter queue.
+- **Nothing is lost while moving a message.** A retry or dead-letter copy is confirmed by the broker before the original is acknowledged.
+- **Malformed messages** go straight to the dead-letter queue, since retrying can't fix them.
+- **Money never depends on the broker.** RabbitMQ only carries events about money that has already moved; if it's down, transfers still work and events wait in the outbox.
 
 ### Concurrency strategy
 

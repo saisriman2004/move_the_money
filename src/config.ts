@@ -51,6 +51,15 @@ function parseFeePercent(value: string | undefined): string {
   return percent;
 }
 
+/** Comma-separated milliseconds, e.g. "1000,5000,25000". */
+function parseDelays(name: string, fallback: number[]): number[] {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const delays = raw.split(',').map((d) => Number(d.trim()));
+  if (delays.length === 0 || delays.some((d) => !Number.isInteger(d) || d <= 0)) throw new Error(`Invalid ${name}: ${raw}`);
+  return delays;
+}
+
 export const config = {
   port: parsePort(process.env.PORT),
   nodeEnv: process.env.NODE_ENV ?? 'development',
@@ -67,4 +76,9 @@ export const config = {
   jwtTtlSeconds: parsePositiveInt('JWT_TTL_SECONDS', 3600),
   // Charged to the sender on top of the amount, rounded to the cent. 0 disables fees.
   transferFeePercent: parseFeePercent(process.env.TRANSFER_FEE_PERCENT),
+  rabbitmqUrl: process.env.RABBITMQ_URL ?? 'amqp://guest:guest@localhost:5672',
+  // Prefixes every exchange and queue name, so environments (or test runs) sharing a broker don't collide.
+  amqpPrefix: process.env.AMQP_PREFIX ?? 'mtm.',
+  // A failed message is retried after each delay in turn, then dead-lettered.
+  consumerRetryDelaysMs: parseDelays('CONSUMER_RETRY_DELAYS_MS', [1000, 5000, 25000]),
 };

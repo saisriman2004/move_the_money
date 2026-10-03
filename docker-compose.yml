@@ -1,0 +1,23 @@
+# Local infrastructure for development and tests. PostgreSQL runs wherever
+# DATABASE_URL points (e.g. Postgres.app). Start with: docker compose up -d
+services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    ports:
+      - '5672:5672'   # AMQP
+      - '15672:15672' # management UI (guest / guest)
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
