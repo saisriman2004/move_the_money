@@ -1,11 +1,13 @@
 import type { ErrorRequestHandler } from 'express';
 import { HttpError } from '../errors';
 import { errorFields, logger } from '../logger';
+import { apiErrors } from '../metrics';
 
 // Express 5 forwards errors thrown in async route handlers to this middleware.
 export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof HttpError) {
     res.locals.errorCode = err.code;
+    apiErrors.inc({ code: err.code, status: String(err.status) });
     res.status(err.status).json({ error: err.code, message: err.message, ...err.details });
     return;
   }
@@ -24,6 +26,7 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   // The request body is deliberately not logged: it carries account ids and amounts.
   // The request id links this line to the client's response for anything more.
   res.locals.errorCode = 'internal_error';
+  apiErrors.inc({ code: 'internal_error', status: '500' });
   logger.error('unhandled error', {
     request_id: res.locals.requestId,
     correlation_id: res.locals.correlationId,

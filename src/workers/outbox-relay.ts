@@ -1,10 +1,14 @@
 import { config } from '../config';
 import { closePool } from '../db';
-import { logger } from '../logger';
+import { logger, setService } from '../logger';
+import { startMetricsServer } from '../metrics';
 import { RabbitPublisher } from '../messaging/publisher';
 import { runRelay } from '../outbox-relay';
 
+setService('outbox-relay');
+
 async function main() {
+  const metrics = startMetricsServer(config.workerMetricsPort(9101), 'outbox-relay');
   const publisher = await RabbitPublisher.connect(config.rabbitmqUrl, config.amqpPrefix);
   const controller = new AbortController();
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
@@ -25,6 +29,7 @@ async function main() {
   });
   await publisher.close();
   await closePool();
+  metrics.close();
   logger.info('outbox relay stopped');
 }
 

@@ -91,6 +91,9 @@ Each payment gets its own `Idempotency-Key`. After a network error or a 5xx, **R
 | `WEBHOOK_ALLOW_PRIVATE_URLS` | `false` | Allow webhook URLs on localhost or private networks. Development only |
 | `CORS_ORIGINS` | none | Comma-separated browser origins allowed to call the API |
 | `TRUST_PROXY` | `false` | Proxies in front of the API (`1` behind one load balancer), so client IPs come from `X-Forwarded-For` |
+| `METRICS_TOKEN` | none | If set, `GET /metrics` requires `Authorization: Bearer <token>` |
+| `WORKER_METRICS_PORT` | 9101–9104 | Port for a worker's `/metrics` and `/health` (relay 9101, notifications 9102, webhooks 9103, reconciliation 9104) |
+| `SERVICE_NAME` | per process | The `service` field on every log line |
 | `TRANSFER_FEE_PERCENT` | `0` | Fee charged to the sender on top of each transfer, e.g. `1` or `0.25`. `.env.example` sets `1` |
 | `TEST_DATABASE_URL` | `DATABASE_URL` with `_test` appended to the database name | Used only by the tests |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` or `silent` |
@@ -99,6 +102,25 @@ Each payment gets its own `Idempotency-Key`. After a network error or a 5xx, **R
 ### Request and correlation ids
 
 Every response carries `X-Request-Id` (this request) and `X-Correlation-Id` (the whole piece of work). Send your own `X-Correlation-Id` to tie several requests together; otherwise it equals the request id. It is logged with each request and carried into the events a request produces, so one id follows a transfer from the API call through RabbitMQ to its notifications and webhooks.
+
+### Metrics
+
+`GET /metrics` serves Prometheus metrics for the API, and each worker serves its own on `WORKER_METRICS_PORT`:
+
+| Metric | What it tells you |
+|---|---|
+| `http_requests_total`, `http_request_duration_seconds` | Traffic and latency per route template (ids replaced by `:id`) |
+| `api_errors_total{code}` | Errors by API error code |
+| `transfers_total{outcome}` | Completed, replayed, or the error that stopped a transfer (e.g. `insufficient_funds`, `risk_rejected`) |
+| `rate_limit_rejections_total{scope}` | 429s per limiter |
+| `outbox_pending_events`, `outbox_oldest_pending_age_seconds` | Whether events are flowing; a growing age means the relay is down |
+| `outbox_events_published_total`, `outbox_publish_failures_total` | Relay throughput and broker failures |
+| `events_consumed_total{consumer,outcome}` | Processed, duplicate, retried and dead-lettered events |
+| `rabbitmq_queue_messages{queue}` | Backlog and dead-letter depth per consumer |
+| `webhook_deliveries{status}`, `webhook_delivery_attempts_total{result}` | Webhook health |
+| `reconciliation_issues`, `reconciliation_last_run_timestamp_seconds` | Whether the books balance, and how recently that was checked |
+
+Health: the API has `/health` (process up) and `/ready` (database reachable); each worker has `/health` on its metrics port.
 
 ### Logs and debugging
 
@@ -126,7 +148,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 244 backend tests (plus 19 frontend unit tests). Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 249 backend tests (plus 19 frontend unit tests). Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -148,6 +170,7 @@ The suite has 244 backend tests (plus 19 frontend unit tests). Most send real HT
 | `notifications.test.ts` | Message wording per event, one notification per user per event, listing / unread count / mark read, ownership, and a real transfer through RabbitMQ. Uses its own database |
 | `reconciliation.test.ts` | A clean ledger reconciles; edited balances, unbalanced transfers, entries not matching amounts and missing entries are each reported; no false alarms during concurrent traffic. Uses its own database |
 | `gateway.test.ts` | `/api/v1` versioning, correlation ids from request to event, CORS allowlist and preflight, security headers, `X-Forwarded-For` behind a trusted proxy |
+| `metrics.test.ts` | `/metrics` token, transfer outcomes and error codes, route templates without ids, outbox backlog gauge, worker metrics server |
 | `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
 | `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
 

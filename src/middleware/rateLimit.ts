@@ -2,6 +2,7 @@ import type { Request, RequestHandler, Response } from 'express';
 import type { Redis } from 'ioredis';
 import { HttpError } from '../errors';
 import { logger } from '../logger';
+import { rateLimitRejections } from '../metrics';
 
 // Sliding-window log, atomic in Redis: drop entries older than the window, count
 // what's left, and add this request only if under the limit. Running it as one
@@ -60,6 +61,7 @@ export function createRateLimiter(options: { redis: () => Redis; prefix: string;
 export function rateLimit(
   check: (key: string) => Promise<RateLimitDecision>,
   keyFor: (req: Request, res: Response) => string,
+  scope = 'default',
 ): RequestHandler {
   return async (req, res, next) => {
     let decision: RateLimitDecision;
@@ -75,6 +77,7 @@ export function rateLimit(
     res.set('RateLimit-Remaining', String(decision.remaining));
     res.set('RateLimit-Reset', String(resetSeconds));
     if (!decision.allowed) {
+      rateLimitRejections.inc({ scope });
       res.set('Retry-After', String(Math.max(1, resetSeconds)));
       throw new HttpError(429, 'rate_limited', 'Too many requests; try again later');
     }

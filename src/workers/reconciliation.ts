@@ -1,10 +1,14 @@
 import { config } from '../config';
 import { closePool } from '../db';
-import { logger } from '../logger';
+import { logger, setService } from '../logger';
+import { startMetricsServer } from '../metrics';
 import { reconcile } from '../reconciliation';
 
 /** Runs reconciliation now and then every RECONCILIATION_INTERVAL_MS until stopped. */
+setService('reconciliation');
+
 async function main() {
+  const metrics = startMetricsServer(config.workerMetricsPort(9104), 'reconciliation');
   const controller = new AbortController();
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => controller.abort());
   logger.info('reconciliation worker started', { interval_ms: config.reconciliationIntervalMs });
@@ -23,6 +27,7 @@ async function main() {
     });
   }
   await closePool();
+  metrics.close();
   logger.info('reconciliation worker stopped');
 }
 

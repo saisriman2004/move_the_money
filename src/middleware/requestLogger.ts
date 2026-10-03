@@ -1,6 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { RequestHandler } from 'express';
 import { logger } from '../logger';
+import { httpDuration, httpRequests } from '../metrics';
+
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+/** The path with ids replaced, so metric labels stay few ("/api/v1/accounts/:id"). */
+function routeLabel(path: string, unmatched: boolean): string {
+  if (unmatched) return 'unmatched';
+  return path.split('?')[0]!.replace(UUID, ':id');
+}
 
 // Accept a caller's request id only if it is short and safe to put in a log line.
 const REQUEST_ID_PATTERN = /^[\w.-]{1,100}$/;
@@ -36,6 +45,9 @@ export const requestLogger: RequestHandler = (req, res, next) => {
       // Set by the error handler, so a 4xx line says which rule the request broke.
       error_code: res.locals.errorCode,
     };
+    const route = routeLabel(req.originalUrl, res.locals.errorCode === 'not_found');
+    httpRequests.inc({ method: req.method, route, status: String(res.statusCode) });
+    httpDuration.observe({ method: req.method, route }, fields.duration_ms / 1000);
     if (res.statusCode >= 500) logger.error('request failed', fields);
     else if (res.statusCode >= 400) logger.warn('request rejected', fields);
     else logger.info('request completed', fields);

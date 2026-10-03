@@ -2,6 +2,7 @@ import { connect, type ChannelModel, type ConfirmChannel, type ConsumeMessage } 
 import type { PoolClient } from 'pg';
 import { withTransaction } from '../db';
 import { logger } from '../logger';
+import { eventsConsumed } from '../metrics';
 import type { DomainEvent } from '../outbox';
 import { assertConsumerTopology, consumerTopology, type ConsumerTopology } from './topology';
 
@@ -88,15 +89,18 @@ export class EventConsumer {
         return 'processed';
       });
       this.channel.ack(msg);
+      eventsConsumed.inc({ consumer: this.options.name, outcome });
       logger.info(outcome === 'processed' ? 'event processed' : 'duplicate event skipped', log);
     } catch (err) {
       const reason = (err as Error).message;
       const retryQueue = this.topology.retryQueues[attempt];
       if (retryQueue) {
         await this.forward(msg, retryQueue, attempt + 1, reason);
+        eventsConsumed.inc({ consumer: this.options.name, outcome: 'retried' });
         logger.warn('event processing failed, will retry', { ...log, error: reason, retry_queue: retryQueue });
       } else {
         await this.forward(msg, this.topology.deadLetterQueue, attempt, reason);
+        eventsConsumed.inc({ consumer: this.options.name, outcome: 'dead_lettered' });
         logger.error('event dead-lettered after retries', { ...log, error: reason });
       }
     }
@@ -111,6 +115,15 @@ export class EventConsumer {
     });
     await this.channel.waitForConfirms();
     this.channel.ack(msg);
+  }
+
+  /** Messages waiting in this consumer's queue and in its dead-letter queue. */
+  async queueDepths(): Promise<{ queue: string; messages: number }[]> {
+    const out = [];
+    for (const queue of [this.topology.queue, this.topology.deadLetterQueue]) {
+      out.push({ queue, messages: (await this.channel.checkQueue(queue)).messageCount });
+    }
+    return out;
   }
 
   get name(): string {

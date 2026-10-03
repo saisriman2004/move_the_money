@@ -13,6 +13,7 @@ import { accountsRouter } from './routes/accounts';
 import { authRouter } from './routes/auth';
 import { notificationsRouter } from './routes/notifications';
 import { healthRouter } from './routes/health';
+import { metricsRouter } from './routes/metrics';
 import { transfersRouter } from './routes/transfers';
 import { webhooksRouter } from './routes/webhooks';
 
@@ -36,11 +37,13 @@ export function createApp() {
   const perUser = rateLimit(
     createRateLimiter({ redis, prefix: config.redisPrefix, limit: config.rateLimitPerWindow, windowMs: config.rateLimitWindowMs }),
     (_req, res) => `user:${currentUserId(res)}`,
+    'user',
   );
   // Stricter, per IP, where passwords are guessed.
   const perIpOnAuth = rateLimit(
     createRateLimiter({ redis, prefix: config.redisPrefix, limit: config.authRateLimitPerWindow, windowMs: config.rateLimitWindowMs }),
     (req) => `auth:${req.ip}`,
+    'auth_ip',
   );
 
   const v1 = express.Router();
@@ -52,6 +55,7 @@ export function createApp() {
   v1.use('/notifications', requireAuth, perUser, notificationsRouter);
 
   app.use(healthRouter);
+  app.use(metricsRouter);
   app.use('/api/v1', v1);
   app.use(notFound);
 

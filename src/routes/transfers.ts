@@ -1,5 +1,6 @@
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { HttpError } from '../errors';
+import { transfers as transferMetric } from '../metrics';
 import { methodNotAllowed } from '../middleware/notFound';
 import { currentUserId } from '../middleware/requireAuth';
 import { parsePositiveAmount } from '../money';
@@ -9,6 +10,15 @@ import { parseAccountId, parseBody, parseIdempotencyKey, requireField } from '..
 export const transfersRouter = Router();
 
 transfersRouter.post('/', async (req, res) => {
+  try {
+    await postTransfer(req, res);
+  } catch (err) {
+    transferMetric.inc({ outcome: err instanceof HttpError ? err.code : 'internal_error' });
+    throw err;
+  }
+});
+
+async function postTransfer(req: Request, res: Response) {
   const body = parseBody(req.body, ['from_account_id', 'to_account_id', 'amount']);
   const fromAccountId = parseAccountId(requireField(body, 'from_account_id'), 'from_account_id');
   const toAccountId = parseAccountId(requireField(body, 'to_account_id'), 'to_account_id');
@@ -27,9 +37,10 @@ transfersRouter.post('/', async (req, res) => {
     idempotencyKey,
     correlationId: res.locals.correlationId,
   });
+  transferMetric.inc({ outcome: replayed ? 'replayed' : 'completed' });
   if (replayed) res.set('Idempotent-Replayed', 'true');
   res.status(201).json(transfer);
-});
+}
 
 transfersRouter.get('/:id', async (req, res) => {
   const id = parseAccountId(req.params.id, 'Transfer id');

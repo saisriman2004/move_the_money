@@ -1,10 +1,14 @@
 import { config } from '../config';
 import { closePool } from '../db';
-import { logger } from '../logger';
+import { logger, setService } from '../logger';
+import { scrapeGauge, startMetricsServer } from '../metrics';
 import { EventConsumer } from '../messaging/consumer';
 import { notifyFromEvent } from '../notifications/service';
 
+setService('notifications');
+
 async function main() {
+  const metrics = startMetricsServer(config.workerMetricsPort(9102), 'notifications');
   const consumer = await EventConsumer.start({
     name: 'notifications',
     bindings: ['account.created', 'transfer.completed', 'transfer.refunded'],
@@ -15,6 +19,9 @@ async function main() {
     prefix: config.amqpPrefix,
     retryDelaysMs: config.consumerRetryDelaysMs,
   });
+  scrapeGauge('rabbitmq_queue_messages', 'Messages waiting in a queue', ['queue'], async (g) => {
+    for (const { queue, messages } of await consumer.queueDepths()) g.set({ queue }, messages);
+  });
   logger.info('notification worker started');
 
   let stopping = false;
@@ -22,6 +29,7 @@ async function main() {
     stopping = true;
     await consumer.stop();
     await closePool();
+    metrics.close();
     logger.info('notification worker stopped');
   };
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => void stop());

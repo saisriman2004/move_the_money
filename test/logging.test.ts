@@ -31,6 +31,7 @@ test('each request is written to the log file with its id, status and error code
   const lines = readFileSync(logFile, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const created = lines.find((l) => l.request_id === ok.headers.get('x-request-id'));
   assert.equal(created.level, 'info');
+  assert.equal(created.service, 'api');
   assert.equal(created.method, 'POST');
   assert.equal(created.status, 201);
   assert.equal(typeof created.duration_ms, 'number');

@@ -1,4 +1,5 @@
 import { withTransaction } from './db';
+import { eventPublishFailures, eventsPublished } from './metrics';
 import type { DomainEvent, EventType } from './outbox';
 
 /** Anything that can deliver an event: RabbitMQ in production, a fake in tests. */
@@ -50,6 +51,7 @@ export async function relayOutboxBatch(publisher: EventPublisher, batchSize = 10
         await publisher.publish(event);
         await client.query('UPDATE outbox_events SET published_at = now(), attempts = attempts + 1 WHERE id = $1', [row.id]);
         result.published++;
+        eventsPublished.inc();
       } catch (err) {
         // Left unpublished; the next batch retries it.
         await client.query('UPDATE outbox_events SET attempts = attempts + 1, last_error = $2 WHERE id = $1', [
@@ -57,6 +59,7 @@ export async function relayOutboxBatch(publisher: EventPublisher, batchSize = 10
           (err as Error).message.slice(0, 1000),
         ]);
         result.failed++;
+        eventPublishFailures.inc();
       }
     }
     return result;

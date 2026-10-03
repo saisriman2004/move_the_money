@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg';
 import { config } from '../config';
 import { pool, withTransaction } from '../db';
 import { HttpError } from '../errors';
+import { webhookAttempts } from '../metrics';
 import type { DomainEvent, EventType } from '../outbox';
 import { signWebhook } from './signing';
 
@@ -165,6 +166,7 @@ async function send(delivery: ClaimedDelivery): Promise<{ ok: boolean; status: n
 async function recordResult(delivery: ClaimedDelivery, result: Awaited<ReturnType<typeof send>>): Promise<void> {
   const attempts = delivery.attempts + 1;
   if (result.ok) {
+    webhookAttempts.inc({ result: 'succeeded' });
     await pool.query(
       `UPDATE webhook_deliveries SET status = 'succeeded', attempts = $2, last_status_code = $3, last_error = NULL, updated_at = now() WHERE id = $1`,
       [delivery.id, attempts, result.status],
@@ -172,6 +174,7 @@ async function recordResult(delivery: ClaimedDelivery, result: Awaited<ReturnTyp
     return;
   }
   const dead = attempts >= config.webhooks.maxAttempts;
+  webhookAttempts.inc({ result: dead ? 'dead' : 'failed' });
   // Exponential backoff with up to 20% jitter, so a recovering endpoint isn't hit by every retry at once.
   const delayMs = Math.round(config.webhooks.retryBaseMs * 2 ** (attempts - 1) * (1 + Math.random() * 0.2));
   await pool.query(

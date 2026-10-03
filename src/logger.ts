@@ -14,9 +14,15 @@ if (config.logFile !== 'off' && config.logLevel !== 'silent') {
  * Writes one JSON object per line to the console and to LOG_FILE, so the file
  * can be searched with grep or parsed line by line.
  */
+// Which process wrote the line, so combined logs from the API and workers can be told apart.
+let service = process.env.SERVICE_NAME ?? 'api';
+export const setService = (name: string) => {
+  service = process.env.SERVICE_NAME ?? name;
+};
+
 function write(level: Exclude<LogLevel, 'silent'>, msg: string, fields: Record<string, unknown> = {}): void {
   if (SEVERITY[level] < SEVERITY[config.logLevel]) return;
-  const line = `${JSON.stringify({ time: new Date().toISOString(), level, msg, ...fields })}\n`;
+  const line = `${JSON.stringify({ time: new Date().toISOString(), level, service, msg, ...fields })}\n`;
   (level === 'error' || level === 'warn' ? process.stderr : process.stdout).write(line);
   file?.write(line);
 }

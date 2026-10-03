@@ -1,5 +1,6 @@
 import { pool, withTransaction } from './db';
 import { logger } from './logger';
+import { reconciliationIssues, reconciliationLastRun } from './metrics';
 
 export type ReconciliationIssue =
   | { type: 'balance_mismatch'; account_id: string; balance: string; ledger_balance: string }
@@ -86,6 +87,8 @@ export async function reconcile(): Promise<ReconciliationReport> {
     [startedAt, status, result.accounts, result.transfers, JSON.stringify(result.issues)],
   );
   const report = rows[0]!;
+  reconciliationIssues.set(result.issues.length);
+  reconciliationLastRun.set(Date.now() / 1000);
   const summary = { run_id: report.id, accounts_checked: report.accounts_checked, transfers_checked: report.transfers_checked, issues: result.issues.length };
   if (status === 'mismatch') {
     // The alert: an error-level log line that monitoring can page on.

@@ -1,6 +1,7 @@
 import { config } from '../config';
 import { closePool } from '../db';
-import { logger } from '../logger';
+import { logger, setService } from '../logger';
+import { scrapeGauge, startMetricsServer } from '../metrics';
 import { EventConsumer } from '../messaging/consumer';
 import { fanOutEvent, runDispatcher } from '../webhooks/service';
 
@@ -9,7 +10,10 @@ import { fanOutEvent, runDispatcher } from '../webhooks/service';
  * deliveries, and a dispatcher that sends due deliveries over HTTP with retries.
  * Slow customer endpoints only slow the dispatcher, never the queue.
  */
+setService('webhooks');
+
 async function main() {
+  const metrics = startMetricsServer(config.workerMetricsPort(9103), 'webhooks');
   const controller = new AbortController();
   for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => controller.abort());
 
@@ -30,6 +34,9 @@ async function main() {
     controller.abort();
   });
 
+  scrapeGauge('rabbitmq_queue_messages', 'Messages waiting in a queue', ['queue'], async (g) => {
+    for (const { queue, messages } of await consumer.queueDepths()) g.set({ queue }, messages);
+  });
   logger.info('webhook worker started');
   await runDispatcher({
     signal: controller.signal,
@@ -37,6 +44,7 @@ async function main() {
   });
   await consumer.stop();
   await closePool();
+  metrics.close();
   logger.info('webhook worker stopped');
 }
 

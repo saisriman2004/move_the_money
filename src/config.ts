@@ -86,6 +86,10 @@ export const config = {
   corsOrigins: (process.env.CORS_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean),
   // Behind a load balancer, trust X-Forwarded-For so req.ip (used by the per-IP rate limit) is the client's.
   trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
+  // If set, GET /metrics requires "Authorization: Bearer <token>".
+  metricsToken: process.env.METRICS_TOKEN || undefined,
+  // Port for a worker's /metrics and /health. Each worker has its own default.
+  workerMetricsPort: (fallback: number) => parsePositiveInt('WORKER_METRICS_PORT', fallback),
   // Read on first use, so tools that never issue tokens (like the migration runner)
   // don't need the secret. The server checks it at startup in index.ts.
   get jwtSecret(): string {
