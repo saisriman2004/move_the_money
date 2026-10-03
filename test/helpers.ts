@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 
 /**
@@ -40,8 +41,20 @@ export interface Response {
   body: any;
 }
 
+export const TEST_JWT_SECRET = 'test-secret-that-is-at-least-32-characters-long';
+
+export interface TestUser {
+  id: string;
+  email: string;
+  token: string;
+}
+
 export interface TestApp {
   baseUrl: string;
+  /** The user every request is authenticated as, unless a test passes its own Authorization header. */
+  user: TestUser;
+  /** Registers another user through the API. */
+  registerUser(): Promise<TestUser>;
   /** Sends a JSON request. A string body is sent as-is, so tests can send malformed JSON. */
   request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<Response>;
   /** Creates an account through the API and returns its id. The balance must be greater than zero. */
@@ -51,7 +64,7 @@ export interface TestApp {
    * only opens accounts with money in them, but 0.00 is a valid state (an
    * account can spend down to it), and transfer tests need empty destinations.
    */
-  createEmptyAccount(): Promise<string>;
+  createEmptyAccount(ownerId?: string): Promise<string>;
   /** Reads an account's balance straight from the database. */
   balance(accountId: string): Promise<string>;
   query<T extends object = any>(sql: string, params?: unknown[]): Promise<T[]>;
@@ -65,6 +78,8 @@ export async function startTestApp(): Promise<TestApp> {
   process.env.DATABASE_URL = url.toString();
   // Keep test output readable; a test that checks logging turns it back on.
   process.env.LOG_LEVEL ??= 'silent';
+  // Always the same secret, whatever a local .env says, so tests can mint their own tokens.
+  process.env.JWT_SECRET = TEST_JWT_SECRET;
 
   // Imported only now, so config and the pool pick up the test DATABASE_URL.
   const { createApp } = await import('../src/app.js');
@@ -79,10 +94,17 @@ export async function startTestApp(): Promise<TestApp> {
   const baseUrl = `http://localhost:${(server.address() as AddressInfo).port}`;
   const app: TestApp = {
     baseUrl,
+    user: { id: '', email: '', token: '' },
+    async registerUser() {
+      const email = `user-${randomUUID()}@example.test`;
+      const res = await app.request('POST', '/auth/register', { email, password: 'correct horse battery' }, { authorization: '' });
+      if (res.status !== 201) throw new Error(`registerUser failed: ${JSON.stringify(res.body)}`);
+      return { id: res.body.user.id, email, token: res.body.token };
+    },
     async request(method, path, body, headers = {}) {
       const res = await fetch(baseUrl + path, {
         method,
-        headers: { 'content-type': 'application/json', ...headers },
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${app.user.token}`, ...headers },
         body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),
       });
       const text = await res.text();
@@ -97,9 +119,10 @@ export async function startTestApp(): Promise<TestApp> {
       if (res.status !== 201) throw new Error(`createAccount failed: ${JSON.stringify(res.body)}`);
       return res.body.id;
     },
-    async createEmptyAccount() {
+    async createEmptyAccount(ownerId = app.user.id) {
       const { rows } = await pool.query<{ id: string }>(
-        `INSERT INTO accounts (first_name, last_name, balance) VALUES ('Test', 'User', 0) RETURNING id`,
+        `INSERT INTO accounts (user_id, first_name, last_name, balance) VALUES ($1, 'Test', 'User', 0) RETURNING id`,
+        [ownerId],
       );
       return rows[0]!.id;
     },
@@ -116,6 +139,7 @@ export async function startTestApp(): Promise<TestApp> {
       await closePool();
     },
   };
+  app.user = await app.registerUser();
   return app;
 }
 

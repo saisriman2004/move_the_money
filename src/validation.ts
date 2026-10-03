@@ -53,3 +53,22 @@ export function parseName(value: unknown, field: string): string {
   }
   return name;
 }
+
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Trims and lowercases an email address and checks its basic shape. */
+export function parseEmail(value: unknown): string {
+  const email = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (email.length > 254 || !EMAIL_PATTERN.test(email)) {
+    throw new HttpError(400, 'invalid_email', 'email must be a valid email address');
+  }
+  return email;
+}
+
+/** Passwords are kept exactly as typed (no trimming) and must be 8-128 characters. */
+export function parsePassword(value: unknown): string {
+  if (typeof value !== 'string' || value.length < 8 || value.length > 128) {
+    throw new HttpError(400, 'invalid_password', 'password must be 8 to 128 characters');
+  }
+  return value;
+}

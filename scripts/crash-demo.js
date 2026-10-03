@@ -17,10 +17,12 @@ const BASE = process.env.API_URL ?? 'http://localhost:3000';
 const DB = process.env.DATABASE_URL ?? 'postgres://localhost:5432/move_money';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+let token = '';
+
 async function api(method, path, body, headers = {}) {
   const res = await fetch(BASE + path, {
     method,
-    headers: { 'content-type': 'application/json', ...headers },
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}`, ...headers },
     body: body && JSON.stringify(body),
   });
   return { status: res.status, headers: res.headers, body: await res.json() };
@@ -32,6 +34,14 @@ async function createAccount(name, balance) {
 }
 
 (async () => {
+  // Every API call needs a logged-in user; register a throwaway one for the demo.
+  const registered = await api('POST', '/auth/register', {
+    email: `crash-demo-${Date.now()}@example.test`,
+    password: 'crash-demo-password',
+  });
+  token = registered.body.token;
+  const userId = registered.body.user.id;
+
   // "observer" plays a second user looking at the database; "blocker" is used to pause the transfer.
   const observer = new Client(DB);
   const blocker = new Client(DB);
@@ -58,8 +68,9 @@ async function createAccount(name, balance) {
   // waiting to see whether that other row with the same key commits.
   await blocker.query('BEGIN');
   await blocker.query(
-    'INSERT INTO transfers (from_account_id, to_account_id, amount, idempotency_key) VALUES ($1, $2, 1, $3)',
-    [carol, dave, key],
+    // Same user and key as the real transfer, because keys are unique per user.
+    'INSERT INTO transfers (from_account_id, to_account_id, amount, idempotency_key, initiated_by) VALUES ($1, $2, 1, $3, $4)',
+    [carol, dave, key, userId],
   );
 
   // Send the transfer, but don't wait for the answer yet: it's going to hang.

@@ -27,6 +27,21 @@ function parseLogLevel(value: string | undefined): LogLevel {
   return level as LogLevel;
 }
 
+function parseJwtSecret(value: string | undefined): string {
+  if (!value || value.length < 32) {
+    throw new Error('JWT_SECRET must be set to at least 32 characters');
+  }
+  return value;
+}
+
+function parsePositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined) return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) throw new Error(`Invalid ${name}: ${raw}`);
+  return value;
+}
+
 export const config = {
   port: parsePort(process.env.PORT),
   nodeEnv: process.env.NODE_ENV ?? 'development',
@@ -34,4 +49,11 @@ export const config = {
   logLevel: parseLogLevel(process.env.LOG_LEVEL),
   // Set LOG_FILE=off to log to the console only.
   logFile: process.env.LOG_FILE ?? 'logs/app.log',
+  // Read on first use, so tools that never issue tokens (like the migration runner)
+  // don't need the secret. The server checks it at startup in index.ts.
+  get jwtSecret(): string {
+    return parseJwtSecret(process.env.JWT_SECRET);
+  },
+  // Access tokens are short-lived; there is no refresh token yet.
+  jwtTtlSeconds: parsePositiveInt('JWT_TTL_SECONDS', 3600),
 };

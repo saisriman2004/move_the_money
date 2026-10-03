@@ -8,6 +8,7 @@ The API enforces these rules, and the tests check each one against a real databa
 - **No lost or created money.** A transfer debits one account and credits another in one transaction, or does nothing.
 - **Exact amounts.** Money is never stored or calculated as a JavaScript floating-point number.
 - **Safe retries.** Retrying a transfer with the same `Idempotency-Key` never moves the money twice.
+- **Owned accounts.** Users log in, and money can only leave an account its owner controls.
 
 See [BUILD_LOG.md](BUILD_LOG.md) for how this was built, including how AI was used.
 
@@ -38,6 +39,7 @@ npm run dev                   # http://localhost:3000
 | `npm run build` then `npm start` | Compiles to `dist/` and runs the compiled build |
 | `npm run migrate` | Applies pending migrations |
 | `npm run typecheck` | Type-checks `src/` and `test/` |
+| `npm run lint` | Runs ESLint |
 | `npm test` | Runs the test suite |
 | `npm run test:log` | Runs the tests and also writes the results to `test-results.log` |
 
@@ -47,6 +49,8 @@ npm run dev                   # http://localhost:3000
 |---|---|---|
 | `DATABASE_URL` | none (required) | The app refuses to start without it |
 | `PORT` | `3000` | Must be a valid port number |
+| `JWT_SECRET` | none (required by the server) | At least 32 characters; signs access tokens. Migrations don't need it |
+| `JWT_TTL_SECONDS` | `3600` | Access token lifetime |
 | `TEST_DATABASE_URL` | `DATABASE_URL` with `_test` appended to the database name | Used only by the tests |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` or `silent` |
 | `LOG_FILE` | `logs/app.log` | Set to `off` to log to the console only |
@@ -77,10 +81,11 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 114 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 133 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
+| `auth.test.ts` | Register, login, token validation (expired, wrong secret, `alg: none`), account ownership, per-user idempotency keys |
 | `database.test.ts` | Migrations, schema constraints, `withTransaction` commit and rollback, including a connection that dies mid-query or during rollback |
 | `accounts.test.ts` | Account creation and lookup, name and amount validation |
 | `transfers.test.ts` | Transfers, exact decimal arithmetic, rollback when an account is missing, validation |
@@ -107,7 +112,33 @@ The script pauses a transfer after it has debited and credited inside its transa
 
 ## API
 
-All request and response bodies are JSON. **Amounts are always strings** such as `"100.00"`, in both directions. A JSON number is rejected, because it may already have been rounded by floating point before the server sees it.
+All request and response bodies are JSON. Every endpoint except `/auth/register`, `/auth/login`, `/health` and `/ready` needs an access token:
+
+```
+Authorization: Bearer <token>
+```
+
+### `POST /auth/register` and `POST /auth/login`
+
+```bash
+curl -X POST localhost:3000/auth/register -H 'content-type: application/json' \
+  -d '{"email": "ada@example.com", "password": "at least 8 chars"}'
+```
+
+```json
+201 Created
+{ "user": { "id": "…", "email": "ada@example.com", "created_at": "…" }, "token": "eyJhbGciOi…" }
+```
+
+`/auth/login` takes the same body and returns `200` with the same shape. A wrong password and an unknown email both return `401 invalid_credentials`, so the API doesn't reveal which emails are registered. `GET /auth/me` returns the current user.
+
+Passwords are hashed with scrypt. Tokens are HS256 JWTs that expire after `JWT_TTL_SECONDS`.
+
+### Ownership
+
+Accounts belong to the user who opened them. `GET /accounts` lists your accounts. Someone else's account returns `404`, not `403`, so account ids can't be probed. You can pay into any account, but money can only leave an account you own.
+
+Amounts in requests and responses are always JSON strings. **Amounts are always strings** such as `"100.00"`, in both directions. A JSON number is rejected, because it may already have been rounded by floating point before the server sees it.
 
 ### `POST /accounts`: create an account
 
@@ -133,6 +164,10 @@ curl -X POST localhost:3000/accounts -H 'content-type: application/json' \
 | `starting_balance` | Required string. Greater than zero, at most 2 decimal places, at most 18 digits before the point. An account can still reach `0.00` later by spending. |
 
 Unknown fields are rejected, so a typo like `startingBalance` fails instead of being ignored.
+
+### `GET /accounts`: list your accounts
+
+Returns `{ "data": [ …accounts… ] }`, oldest first.
 
 ### `GET /accounts/:id`: look up an account and its balance
 
@@ -200,6 +235,12 @@ Every error has the same shape:
 | Status | `error` | When |
 |---|---|---|
 | 400 | `malformed_json` | The body isn't valid JSON |
+| 400 | `invalid_email` | Registration email isn't a valid address |
+| 400 | `invalid_password` | Registration password isn't 8–128 characters |
+| 401 | `missing_token` | No `Authorization: Bearer` header |
+| 401 | `invalid_token` | The token is expired, tampered with, or signed with another secret |
+| 401 | `invalid_credentials` | Login email or password is wrong |
+| 409 | `email_taken` | Registration email is already used (case-insensitive) |
 | 400 | `invalid_body` | The body is JSON but not an object |
 | 400 | `unknown_field` | The body has a field the endpoint doesn't accept |
 | 400 | `missing_field` | A required field is absent |
@@ -290,8 +331,7 @@ The hash only turns the key into a lock number. If two different keys hash to th
 
 ## What I chose not to build
 
-- **Authentication and authorization.** Anyone can move money from any account. In a real system this would be the first thing to add.
-- **Per-client idempotency keys.** Keys are global, so two clients using the same key would collide. With authentication, keys would be scoped per user.
+- **Refresh tokens and logout.** Access tokens simply expire; there is no refresh flow or revocation list yet.
 - **Idempotency key expiry.** Keys are kept forever. Real systems usually keep them for about 24 hours.
 - **Cursor pagination on history.** Only the newest 100 transfers of an account can be fetched. Cursor pagination is more machinery than this project needs.
 - **Listing all accounts, closing accounts, and currencies.** None were required, so there is a single implied currency.
@@ -299,13 +339,12 @@ The hash only turns the key into a lock number. If two different keys hash to th
 
 ## What I would do next
 
-1. Add authentication, then scope accounts and idempotency keys to the authenticated user.
-2. Expire idempotency keys after about 24 hours with a scheduled cleanup.
-3. Add cursor pagination to history (keyset on `created_at, id`) once accounts have long histories.
-4. Ship logs to a central store instead of a local file, and rotate `logs/app.log`, which currently grows forever.
-5. Add graceful shutdown that drains in-flight transactions before the process exits.
-6. Run the test suite in CI against a PostgreSQL service container.
-7. Add a nightly check that the sum of all balances equals the sum of all starting balances.
+See [docs/roadmap.md](docs/roadmap.md) for the V2 milestones in progress. Beyond those:
+
+1. Expire idempotency keys after about 24 hours with a scheduled cleanup.
+2. Add cursor pagination to history (keyset on `created_at, id`) once accounts have long histories.
+3. Add graceful shutdown that drains in-flight transactions before the process exits.
+4. Add refresh tokens and token revocation.
 
 ---
 

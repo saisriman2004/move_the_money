@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { HttpError } from '../errors';
 import { methodNotAllowed } from '../middleware/notFound';
+import { currentUserId } from '../middleware/requireAuth';
 import { parsePositiveAmount } from '../money';
 import { createTransfer } from '../services/transfers';
 import { parseAccountId, parseBody, requireField } from '../validation';
@@ -34,7 +35,13 @@ transfersRouter.post('/', async (req, res) => {
     );
   }
 
-  const { transfer, replayed } = await createTransfer({ fromAccountId, toAccountId, amount, idempotencyKey });
+  const { transfer, replayed } = await createTransfer({
+    userId: currentUserId(res),
+    fromAccountId,
+    toAccountId,
+    amount,
+    idempotencyKey,
+  });
   if (replayed) res.set('Idempotent-Replayed', 'true');
   res.status(201).json(transfer);
 });

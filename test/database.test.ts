@@ -1,8 +1,15 @@
 import assert from 'node:assert/strict';
+import { readdirSync } from 'node:fs';
+import path from 'node:path';
 import { after, before, describe, test } from 'node:test';
 import { startTestApp, type TestApp } from './helpers';
 
 let app: TestApp;
+
+/** Every .sql file in migrations/, in the order the runner applies them. */
+function migrationFiles(): string[] {
+  return readdirSync(path.join(__dirname, '../migrations')).filter((f) => f.endsWith('.sql')).sort();
+}
 let db: typeof import('../src/db/index.js');
 let migrations: typeof import('../src/db/migrate.js');
 
@@ -45,13 +52,13 @@ describe('migrations', () => {
     assert.deepEqual(tables.map((t) => t.table_name), ['accounts', 'transfers']);
 
     const recorded = await app.query<{ name: string }>('SELECT name FROM schema_migrations ORDER BY name');
-    assert.deepEqual(recorded.map((r) => r.name), ['001_initial_schema.sql', '002_transfer_idempotency_keys.sql']);
+    assert.deepEqual(recorded.map((r) => r.name), migrationFiles());
   });
 
   test('running them again is a no-op', async () => {
     assert.deepEqual(await migrations.migrate(), []);
     const [row] = await app.query<{ count: string }>('SELECT count(*) FROM schema_migrations');
-    assert.equal(row!.count, '2');
+    assert.equal(row!.count, String(migrationFiles().length));
   });
 
   test('concurrent runners do not collide', async () => {
