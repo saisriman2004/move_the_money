@@ -19,7 +19,7 @@ PostgreSQL stays the source of truth for money. Redis and RabbitMQ never decide 
 | 11 | Event-driven notifications | done |
 | 12 | Ledger reconciliation | done |
 | 13 | API gateway layer: versioning, CORS, correlation ids | done |
-| 14 | React dashboard | planned |
+| 14 | React dashboard | done |
 | 15 | Metrics and observability | planned |
 | 16 | Containerized full stack | planned |
 | 17 | End-to-end and load tests | planned |

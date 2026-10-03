@@ -50,6 +50,22 @@ npm run dev                   # http://localhost:3000
 | `npm test` | Runs the test suite |
 | `npm run test:log` | Runs the tests and also writes the results to `test-results.log` |
 
+### The web app
+
+`frontend/` is a React + TypeScript dashboard (Vite). With the API running on port 3000:
+
+```bash
+cd frontend
+npm install
+npm run dev        # http://localhost:5173, proxies /api to the API
+npm test           # unit tests for money validation, retry keys and filters
+npm run build      # static files in frontend/dist
+```
+
+Sign in or register, open accounts, send money, view history and each transfer's ledger entries, refund payments you received, read notifications (polled every 5 seconds), and manage webhooks under Developers. Notifications need the outbox relay and notification worker running.
+
+Each payment gets its own `Idempotency-Key`. After a network error or a 5xx, **Retry** sends the same key, so a payment can't be applied twice; changing the form starts a new payment with a new key.
+
 ### Configuration
 
 | Variable | Default | Notes |
@@ -110,7 +126,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 241 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 244 backend tests (plus 19 frontend unit tests). Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
