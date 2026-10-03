@@ -62,6 +62,10 @@ npm run dev                   # http://localhost:3000
 | `RATE_LIMIT_PER_MINUTE` | `100` | Requests per minute for each logged-in user |
 | `AUTH_RATE_LIMIT_PER_MINUTE` | `10` | Login and registration attempts per minute for each IP |
 | `ACCOUNT_CACHE_TTL_SECONDS` | `30` | How long `GET /accounts/:id` responses stay cached |
+| `RISK_REVIEW_AMOUNT` / `RISK_REJECT_AMOUNT` | `1000.00` / `10000.00` | Transfers at or above these amounts are flagged for review / declined |
+| `RISK_MAX_TRANSFERS_PER_MINUTE` | `10` | Transfers per minute from one account before further ones are declined |
+| `RISK_NEW_ACCOUNT_HOURS` / `RISK_NEW_ACCOUNT_REVIEW_AMOUNT` | `24` / `500.00` | Accounts younger than this sending at least this much are flagged |
+| `RISK_MAX_RECENT_REJECTIONS` | `3` | Declines in 10 minutes before every transfer from the account is declined |
 | `TRANSFER_FEE_PERCENT` | `0` | Fee charged to the sender on top of each transfer, e.g. `1` or `0.25`. `.env.example` sets `1` |
 | `TEST_DATABASE_URL` | `DATABASE_URL` with `_test` appended to the database name | Used only by the tests |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` or `silent` |
@@ -93,7 +97,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 186 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 201 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -110,6 +114,7 @@ The suite has 186 tests. Most send real HTTP requests to the app running on a ra
 | `outbox.test.ts` | Events written in the money transaction (and rolled back with it), relay ordering, retries after a failed publish, concurrent relays publishing each event exactly once. Uses its own database |
 | `messaging.test.ts` | Against a real RabbitMQ: outbox → broker → consumer with event and correlation ids, routing by event type, duplicate deliveries processed once, delayed retries, dead-lettering, broker outages. Uses its own database |
 | `redis.test.ts` | Rate limits (headers, 429, sliding window, per user, concurrent requests, per-IP login limit, fail-open) and the account cache (hits, invalidation after transfers, ownership on hits, TTL) |
+| `risk.test.ts` | Each risk rule as a pure function; approve / review / reject on real transfers; velocity limit under 10 concurrent transfers; repeated rejections; replays and refunds skip risk |
 | `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
 | `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
 
@@ -305,6 +310,7 @@ Every error has the same shape:
 | 422 | `not_refundable` | Refunds and deposits can't be refunded |
 | 413 | `payload_too_large` | The body is over 100 KB |
 | 415 | `unsupported_media_type` | The body isn't `application/json` |
+| 422 | `risk_rejected` | Declined by risk checks. The body includes `reasons`, e.g. `["amount_over_limit"]` |
 | 429 | `rate_limited` | Too many requests. `Retry-After` says how many seconds to wait |
 | 422 | `insufficient_funds` | The source balance is lower than the amount |
 | 500 | `internal_error` | Unexpected. Details are logged on the server and never sent to the client. |
@@ -360,6 +366,14 @@ Events are published to a topic exchange (`mtm.events`) with the event type as r
 - **Nothing is lost while moving a message.** A retry or dead-letter copy is confirmed by the broker before the original is acknowledged.
 - **Malformed messages** go straight to the dead-letter queue, since retrying can't fix them.
 - **Money never depends on the broker.** RabbitMQ only carries events about money that has already moved; if it's down, transfers still work and events wait in the outbox.
+
+### Risk checks
+
+Every transfer is assessed before money moves: `approve`, `review` (allowed, but flagged with `risk_decision: "review"`) or `reject` (`422 risk_rejected` with `reasons`). The rules are deliberately simple stand-ins for a real fraud model: amount thresholds, transfers per minute per account, large transfers from accounts under a day old, and repeated recent rejections.
+
+The check runs inside the transfer's transaction, after the source account is locked, so concurrent transfers from one account are serialized and the per-minute count can't be raced. Every decision is stored in `risk_decisions`; rejections are written after the rollback, on their own connection, so they're kept. Replays and refunds aren't re-checked.
+
+It's a synchronous module rather than a separate service, because the decision must be made before the money moves. Slower analysis that doesn't gate a transfer could consume `transfer.completed` events instead.
 
 ### Redis: rate limiting and caching
 

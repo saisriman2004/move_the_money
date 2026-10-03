@@ -5,6 +5,7 @@ import { pool, withTransaction } from '../db';
 import { HttpError } from '../errors';
 import { postLedgerEntries, SYSTEM_ACCOUNTS, type LedgerLine } from '../ledger';
 import { enqueueEvent } from '../outbox';
+import { assessRisk, gatherRiskFacts, recordRejection, RiskRejection } from '../risk';
 
 export interface Transfer {
   id: string;
@@ -16,6 +17,8 @@ export interface Transfer {
   fee: string;
   /** For a refund, the transfer it reverses. */
   refund_of: string | null;
+  /** How risk checks let the transfer through: 'approve', or 'review' (allowed but flagged). */
+  risk_decision: 'approve' | 'review' | null;
   created_at: Date;
 }
 
@@ -25,7 +28,7 @@ export interface TransferResult {
   replayed: boolean;
 }
 
-const TRANSFER_COLUMNS = 'id, kind, from_account_id, to_account_id, amount, fee, refund_of, created_at';
+const TRANSFER_COLUMNS = 'id, kind, from_account_id, to_account_id, amount, fee, refund_of, risk_decision, created_at';
 
 const isZero = (amount: string) => /^0+(\.0+)?$/.test(amount);
 
@@ -88,7 +91,7 @@ export async function createTransfer(input: {
   requestId?: string;
 }): Promise<TransferResult> {
   const { userId, fromAccountId, toAccountId, amount, idempotencyKey } = input;
-  const result = await withTransaction(async (client): Promise<TransferResult> => {
+  const run = withTransaction(async (client): Promise<TransferResult> => {
     const existing = await claimIdempotencyKey(client, userId, idempotencyKey);
     if (existing) {
       const { rows } = await client.query<{ same: boolean }>('SELECT $1::numeric = $2::numeric AS same', [
@@ -117,6 +120,12 @@ export async function createTransfer(input: {
       throw new HttpError(404, 'account_not_found', 'Destination account not found');
     }
 
+    // Risk checks run after the source is locked, so the velocity count can't be raced.
+    const risk = assessRisk(await gatherRiskFacts(client, fromAccountId, amount));
+    if (risk.decision === 'reject') {
+      throw new RiskRejection(risk.reasons, { userId, fromAccountId, amount });
+    }
+
     // Fee and total are computed in SQL, so money never becomes a JS number.
     const { rows: priced } = await client.query<{ fee: string; total: string }>(
       `SELECT fee::text, ($1::numeric + fee)::text AS total
@@ -135,12 +144,16 @@ export async function createTransfer(input: {
     }
 
     const { rows } = await client.query<Transfer>(
-      `INSERT INTO transfers (from_account_id, to_account_id, amount, fee, idempotency_key, initiated_by)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO transfers (from_account_id, to_account_id, amount, fee, idempotency_key, initiated_by, risk_decision)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING ${TRANSFER_COLUMNS}`,
-      [fromAccountId, toAccountId, amount, fee, idempotencyKey, userId],
+      [fromAccountId, toAccountId, amount, fee, idempotencyKey, userId, risk.decision],
     );
     const transfer = rows[0]!;
+    await client.query(
+      `INSERT INTO risk_decisions (user_id, from_account_id, amount, decision, reasons, transfer_id) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [userId, fromAccountId, amount, risk.decision, risk.reasons, transfer.id],
+    );
     const lines: LedgerLine[] = [
       { accountId: fromAccountId, direction: 'debit', amount },
       { accountId: toAccountId, direction: 'credit', amount },
@@ -155,11 +168,19 @@ export async function createTransfer(input: {
     await enqueueEvent(client, {
       type: 'transfer.completed',
       aggregateId: transfer.id,
-      data: { transfer, from_user_id: userId, to_user_id: destination.user_id },
+      data: { transfer, from_user_id: userId, to_user_id: destination.user_id, risk_reasons: risk.reasons },
       correlationId: input.requestId,
     });
     return { transfer, replayed: false };
   });
+  let result: TransferResult;
+  try {
+    result = await run;
+  } catch (err) {
+    // The transaction has rolled back; keep a record of the rejection on its own.
+    if (err instanceof RiskRejection) await recordRejection(err);
+    throw err;
+  }
   // Only after the commit: a cached balance must never be dropped before the new one is visible.
   if (!result.replayed) await invalidateAccounts([result.transfer.from_account_id, result.transfer.to_account_id]);
   return result;

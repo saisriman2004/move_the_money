@@ -99,6 +99,11 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
   process.env.REDIS_PREFIX ??= `test:${process.pid}:${Date.now()}:`;
   process.env.RATE_LIMIT_PER_MINUTE ??= '1000000';
   process.env.AUTH_RATE_LIMIT_PER_MINUTE ??= '1000000';
+  // Permissive risk rules, so stress tests and large amounts aren't declined;
+  // the risk tests set strict ones.
+  process.env.RISK_REJECT_AMOUNT ??= '999999999999999999.99';
+  process.env.RISK_MAX_TRANSFERS_PER_MINUTE ??= '1000000';
+  process.env.RISK_MAX_RECENT_REJECTIONS ??= '1000000';
 
   // Imported only now, so config and the pool pick up the test DATABASE_URL.
   const { createApp } = await import('../src/app.js');

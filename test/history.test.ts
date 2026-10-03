@@ -79,7 +79,7 @@ describe('GET /accounts/:id/transactions', () => {
     const b = await app.createEmptyAccount();
     await transfer(a, b, '0.10');
     const [item] = (await history(a)).body.data;
-    assert.deepEqual(Object.keys(item).sort(), ['amount', 'created_at', 'direction', 'fee', 'from_account_id', 'id', 'kind', 'refund_of', 'to_account_id']);
+    assert.deepEqual(Object.keys(item).sort(), ['amount', 'created_at', 'direction', 'fee', 'from_account_id', 'id', 'kind', 'refund_of', 'risk_decision', 'to_account_id']);
     assert.equal(item.kind, 'transfer');
     assert.equal(item.amount, '0.10');
   });

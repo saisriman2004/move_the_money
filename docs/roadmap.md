@@ -14,7 +14,7 @@ PostgreSQL stays the source of truth for money. Redis and RabbitMQ never decide 
 | 6 | Transactional outbox | done |
 | 7 | RabbitMQ event processing | done |
 | 8 | Redis rate limiting and caching | done |
-| 9 | Risk evaluation | planned |
+| 9 | Risk evaluation | done |
 | 10 | Signed webhooks with retries | planned |
 | 11 | Event-driven notifications | planned |
 | 12 | Ledger reconciliation | planned |

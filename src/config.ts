@@ -60,6 +60,12 @@ function parseDelays(name: string, fallback: number[]): number[] {
   return delays;
 }
 
+function parseAmountSetting(name: string, fallback: string): string {
+  const raw = process.env[name] ?? fallback;
+  if (!/^\d{1,18}(\.\d{1,2})?$/.test(raw)) throw new Error(`Invalid ${name}: ${raw}`);
+  return raw;
+}
+
 export const config = {
   port: parsePort(process.env.PORT),
   nodeEnv: process.env.NODE_ENV ?? 'development',
@@ -88,4 +94,12 @@ export const config = {
   authRateLimitPerWindow: parsePositiveInt('AUTH_RATE_LIMIT_PER_MINUTE', 10),
   rateLimitWindowMs: parsePositiveInt('RATE_LIMIT_WINDOW_MS', 60_000),
   accountCacheTtlSeconds: parsePositiveInt('ACCOUNT_CACHE_TTL_SECONDS', 30),
+  risk: {
+    reviewAmount: parseAmountSetting('RISK_REVIEW_AMOUNT', '1000.00'),
+    rejectAmount: parseAmountSetting('RISK_REJECT_AMOUNT', '10000.00'),
+    maxTransfersPerMinute: parsePositiveInt('RISK_MAX_TRANSFERS_PER_MINUTE', 10),
+    newAccountHours: parsePositiveInt('RISK_NEW_ACCOUNT_HOURS', 24),
+    newAccountReviewAmount: parseAmountSetting('RISK_NEW_ACCOUNT_REVIEW_AMOUNT', '500.00'),
+    maxRecentRejections: parsePositiveInt('RISK_MAX_RECENT_REJECTIONS', 3),
+  },
 };

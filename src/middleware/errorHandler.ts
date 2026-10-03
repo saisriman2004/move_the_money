@@ -6,7 +6,7 @@ import { errorFields, logger } from '../logger';
 export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof HttpError) {
     res.locals.errorCode = err.code;
-    res.status(err.status).json({ error: err.code, message: err.message });
+    res.status(err.status).json({ error: err.code, message: err.message, ...err.details });
     return;
   }
   // express.json() rejected the body: the client's fault, not ours.
