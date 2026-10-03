@@ -81,4 +81,11 @@ export const config = {
   amqpPrefix: process.env.AMQP_PREFIX ?? 'mtm.',
   // A failed message is retried after each delay in turn, then dead-lettered.
   consumerRetryDelaysMs: parseDelays('CONSUMER_RETRY_DELAYS_MS', [1000, 5000, 25000]),
+  redisUrl: process.env.REDIS_URL ?? 'redis://localhost:6379',
+  redisPrefix: process.env.REDIS_PREFIX ?? 'mtm:',
+  // Requests per window for each logged-in user, and for each IP on login/register.
+  rateLimitPerWindow: parsePositiveInt('RATE_LIMIT_PER_MINUTE', 100),
+  authRateLimitPerWindow: parsePositiveInt('AUTH_RATE_LIMIT_PER_MINUTE', 10),
+  rateLimitWindowMs: parsePositiveInt('RATE_LIMIT_WINDOW_MS', 60_000),
+  accountCacheTtlSeconds: parsePositiveInt('ACCOUNT_CACHE_TTL_SECONDS', 30),
 };

@@ -1,4 +1,5 @@
 import type { PoolClient } from 'pg';
+import { invalidateAccounts } from '../cache/accounts';
 import { config } from '../config';
 import { pool, withTransaction } from '../db';
 import { HttpError } from '../errors';
@@ -87,7 +88,7 @@ export async function createTransfer(input: {
   requestId?: string;
 }): Promise<TransferResult> {
   const { userId, fromAccountId, toAccountId, amount, idempotencyKey } = input;
-  return withTransaction(async (client) => {
+  const result = await withTransaction(async (client): Promise<TransferResult> => {
     const existing = await claimIdempotencyKey(client, userId, idempotencyKey);
     if (existing) {
       const { rows } = await client.query<{ same: boolean }>('SELECT $1::numeric = $2::numeric AS same', [
@@ -159,6 +160,9 @@ export async function createTransfer(input: {
     });
     return { transfer, replayed: false };
   });
+  // Only after the commit: a cached balance must never be dropped before the new one is visible.
+  if (!result.replayed) await invalidateAccounts([result.transfer.from_account_id, result.transfer.to_account_id]);
+  return result;
 }
 
 /**
@@ -174,7 +178,7 @@ export async function refundTransfer(input: {
 }): Promise<TransferResult> {
   const { userId, idempotencyKey } = input;
   const transferId = input.transferId.toLowerCase();
-  return withTransaction(async (client) => {
+  const result = await withTransaction(async (client): Promise<TransferResult> => {
     const existing = await claimIdempotencyKey(client, userId, idempotencyKey);
     if (existing) {
       if (existing.kind !== 'refund' || existing.refund_of !== transferId) throw keyConflict();
@@ -243,6 +247,8 @@ export async function refundTransfer(input: {
     });
     return { transfer: refund, replayed: false };
   });
+  if (!result.replayed) await invalidateAccounts([result.transfer.from_account_id, result.transfer.to_account_id]);
+  return result;
 }
 
 export interface AccountTransaction extends Transfer {

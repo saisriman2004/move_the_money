@@ -94,11 +94,17 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
   process.env.LOG_LEVEL ??= 'silent';
   // Always the same secret, whatever a local .env says, so tests can mint their own tokens.
   process.env.JWT_SECRET = TEST_JWT_SECRET;
+  // Each test process gets its own Redis keys, and limits high enough not to interfere.
+  // Tests of the limiter itself set their own values before starting.
+  process.env.REDIS_PREFIX ??= `test:${process.pid}:${Date.now()}:`;
+  process.env.RATE_LIMIT_PER_MINUTE ??= '1000000';
+  process.env.AUTH_RATE_LIMIT_PER_MINUTE ??= '1000000';
 
   // Imported only now, so config and the pool pick up the test DATABASE_URL.
   const { createApp } = await import('../src/app.js');
   const { migrate } = await import('../src/db/migrate.js');
   const { pool, closePool } = await import('../src/db/index.js');
+  const { closeRedis } = await import('../src/redis.js');
   await migrate();
 
   const server: Server = await new Promise((resolve) => {
@@ -151,6 +157,7 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
     async close() {
       await new Promise((resolve) => server.close(resolve));
       await closePool();
+      await closeRedis();
     },
   };
   app.user = await app.registerUser();

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { cacheAccount, getCachedAccount } from '../cache/accounts';
 import { HttpError } from '../errors';
 import { methodNotAllowed } from '../middleware/notFound';
 import { parsePositiveAmount } from '../money';
@@ -31,11 +32,21 @@ accountsRouter.get('/', async (_req, res) => {
 // Someone else's account returns 404, not 403, so ids can't be probed for existence.
 accountsRouter.get('/:id', async (req, res) => {
   const id = parseAccountId(req.params.id, 'Account id');
-  const account = await findOwnedAccount(id, currentUserId(res));
+  const userId = currentUserId(res);
+  const cached = await getCachedAccount(id);
+  if (cached) {
+    // A cache hit still goes through the ownership check.
+    if (cached.user_id !== userId) throw new HttpError(404, 'account_not_found', 'Account not found');
+    const { user_id: _, ...account } = cached;
+    res.set('X-Cache', 'HIT').json(account);
+    return;
+  }
+  const account = await findOwnedAccount(id, userId);
   if (!account) {
     throw new HttpError(404, 'account_not_found', 'Account not found');
   }
-  res.json(account);
+  await cacheAccount({ ...account, user_id: userId });
+  res.set('X-Cache', 'MISS').json(account);
 });
 
 accountsRouter.get('/:id/transactions', async (req, res) => {

@@ -57,6 +57,11 @@ npm run dev                   # http://localhost:3000
 | `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672` | Message broker for domain events |
 | `AMQP_PREFIX` | `mtm.` | Prefix for every exchange and queue name |
 | `CONSUMER_RETRY_DELAYS_MS` | `1000,5000,25000` | Delays before each retry of a failing message; after the last it is dead-lettered |
+| `REDIS_URL` | `redis://localhost:6379` | Rate-limit counters and the account cache |
+| `REDIS_PREFIX` | `mtm:` | Prefix for every Redis key |
+| `RATE_LIMIT_PER_MINUTE` | `100` | Requests per minute for each logged-in user |
+| `AUTH_RATE_LIMIT_PER_MINUTE` | `10` | Login and registration attempts per minute for each IP |
+| `ACCOUNT_CACHE_TTL_SECONDS` | `30` | How long `GET /accounts/:id` responses stay cached |
 | `TRANSFER_FEE_PERCENT` | `0` | Fee charged to the sender on top of each transfer, e.g. `1` or `0.25`. `.env.example` sets `1` |
 | `TEST_DATABASE_URL` | `DATABASE_URL` with `_test` appended to the database name | Used only by the tests |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` or `silent` |
@@ -88,7 +93,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 176 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 186 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -104,6 +109,7 @@ The suite has 176 tests. Most send real HTTP requests to the app running on a ra
 | `ledger.test.ts` | Balanced entries per transfer, balances rebuilt from the ledger, immutable entries, unbalanced writes rejected at commit, system accounts |
 | `outbox.test.ts` | Events written in the money transaction (and rolled back with it), relay ordering, retries after a failed publish, concurrent relays publishing each event exactly once. Uses its own database |
 | `messaging.test.ts` | Against a real RabbitMQ: outbox → broker → consumer with event and correlation ids, routing by event type, duplicate deliveries processed once, delayed retries, dead-lettering, broker outages. Uses its own database |
+| `redis.test.ts` | Rate limits (headers, 429, sliding window, per user, concurrent requests, per-IP login limit, fail-open) and the account cache (hits, invalidation after transfers, ownership on hits, TTL) |
 | `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
 | `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
 
@@ -299,6 +305,7 @@ Every error has the same shape:
 | 422 | `not_refundable` | Refunds and deposits can't be refunded |
 | 413 | `payload_too_large` | The body is over 100 KB |
 | 415 | `unsupported_media_type` | The body isn't `application/json` |
+| 429 | `rate_limited` | Too many requests. `Retry-After` says how many seconds to wait |
 | 422 | `insufficient_funds` | The source balance is lower than the amount |
 | 500 | `internal_error` | Unexpected. Details are logged on the server and never sent to the client. |
 | 503 | `not_ready` | `GET /ready` only: the database is unreachable |
@@ -353,6 +360,12 @@ Events are published to a topic exchange (`mtm.events`) with the event type as r
 - **Nothing is lost while moving a message.** A retry or dead-letter copy is confirmed by the broker before the original is acknowledged.
 - **Malformed messages** go straight to the dead-letter queue, since retrying can't fix them.
 - **Money never depends on the broker.** RabbitMQ only carries events about money that has already moved; if it's down, transfers still work and events wait in the outbox.
+
+### Redis: rate limiting and caching
+
+- **Rate limits.** 100 requests per minute per logged-in user, and 10 login or registration attempts per minute per IP. The limiter is a sliding-window log run as a single Lua script, so concurrent requests can't both take the last slot. Responses carry `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`; a rejected request gets `429` with `Retry-After`.
+- **Account cache.** `GET /accounts/:id` is cached for 30 seconds (`X-Cache: HIT` or `MISS`). Every transfer and refund deletes both accounts' entries after it commits. A cache hit still checks ownership.
+- **Redis is never the source of truth.** Transfers always read and lock balances in PostgreSQL. If Redis is down, the limiter allows requests and the cache is bypassed (fail-open), with commands timing out after 250 ms so a slow Redis can't stall the API.
 
 ### Concurrency strategy
 
