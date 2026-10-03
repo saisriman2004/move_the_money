@@ -94,6 +94,15 @@ export const config = {
   authRateLimitPerWindow: parsePositiveInt('AUTH_RATE_LIMIT_PER_MINUTE', 10),
   rateLimitWindowMs: parsePositiveInt('RATE_LIMIT_WINDOW_MS', 60_000),
   accountCacheTtlSeconds: parsePositiveInt('ACCOUNT_CACHE_TTL_SECONDS', 30),
+  webhooks: {
+    timeoutMs: parsePositiveInt('WEBHOOK_TIMEOUT_MS', 5000),
+    maxAttempts: parsePositiveInt('WEBHOOK_MAX_ATTEMPTS', 8),
+    // Delay before retry n is base * 2^(n-1): 10s, 20s, 40s, ... about 21 minutes in total.
+    retryBaseMs: parsePositiveInt('WEBHOOK_RETRY_BASE_MS', 10_000),
+    // Off by default: stops endpoints pointing at internal addresses (SSRF). Enable for local development.
+    allowPrivateUrls: process.env.WEBHOOK_ALLOW_PRIVATE_URLS === 'true',
+    maxEndpointsPerUser: 10,
+  },
   risk: {
     reviewAmount: parseAmountSetting('RISK_REVIEW_AMOUNT', '1000.00'),
     rejectAmount: parseAmountSetting('RISK_REJECT_AMOUNT', '10000.00'),

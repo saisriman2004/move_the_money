@@ -43,6 +43,7 @@ npm run dev                   # http://localhost:3000
 | `npm run typecheck` | Type-checks `src/` and `test/` |
 | `npm run lint` | Runs ESLint |
 | `npm run worker:outbox` | Runs the outbox relay worker |
+| `npm run worker:webhooks` | Runs the webhook worker (event fan-out and HTTP delivery) |
 | `npm test` | Runs the test suite |
 | `npm run test:log` | Runs the tests and also writes the results to `test-results.log` |
 
@@ -66,6 +67,9 @@ npm run dev                   # http://localhost:3000
 | `RISK_MAX_TRANSFERS_PER_MINUTE` | `10` | Transfers per minute from one account before further ones are declined |
 | `RISK_NEW_ACCOUNT_HOURS` / `RISK_NEW_ACCOUNT_REVIEW_AMOUNT` | `24` / `500.00` | Accounts younger than this sending at least this much are flagged |
 | `RISK_MAX_RECENT_REJECTIONS` | `3` | Declines in 10 minutes before every transfer from the account is declined |
+| `WEBHOOK_TIMEOUT_MS` | `5000` | How long a customer endpoint has to answer |
+| `WEBHOOK_MAX_ATTEMPTS` / `WEBHOOK_RETRY_BASE_MS` | `8` / `10000` | Attempts before a delivery is dead; retry n waits base × 2^(n-1) |
+| `WEBHOOK_ALLOW_PRIVATE_URLS` | `false` | Allow webhook URLs on localhost or private networks. Development only |
 | `TRANSFER_FEE_PERCENT` | `0` | Fee charged to the sender on top of each transfer, e.g. `1` or `0.25`. `.env.example` sets `1` |
 | `TEST_DATABASE_URL` | `DATABASE_URL` with `_test` appended to the database name | Used only by the tests |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` or `silent` |
@@ -97,7 +101,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 201 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 217 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -115,6 +119,7 @@ The suite has 201 tests. Most send real HTTP requests to the app running on a ra
 | `messaging.test.ts` | Against a real RabbitMQ: outbox → broker → consumer with event and correlation ids, routing by event type, duplicate deliveries processed once, delayed retries, dead-lettering, broker outages. Uses its own database |
 | `redis.test.ts` | Rate limits (headers, 429, sliding window, per user, concurrent requests, per-IP login limit, fail-open) and the account cache (hits, invalidation after transfers, ownership on hits, TTL) |
 | `risk.test.ts` | Each risk rule as a pure function; approve / review / reject on real transfers; velocity limit under 10 concurrent transfers; repeated rejections; replays and refunds skip risk |
+| `webhooks.test.ts` | Endpoint management and URL safety, fan-out to the right users, signed delivery, retries with growing delays, timeouts, dead deliveries, concurrent dispatchers, and API → RabbitMQ → webhook end to end. Uses its own database |
 | `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
 | `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
 
@@ -235,6 +240,23 @@ Returns `201` with a new transfer of kind `refund`, from the receiver back to th
 - The receiver must still have the money (`422 insufficient_funds`).
 - `Idempotency-Key` is required, and works like it does for transfers.
 
+### Webhooks
+
+```bash
+curl -X POST localhost:3000/webhooks -H 'Authorization: Bearer …' -H 'content-type: application/json' \
+  -d '{"url": "https://example.com/hooks/payments", "events": ["transfer.completed", "transfer.refunded"]}'
+```
+
+Returns `201` with the endpoint and its `secret` (shown only this once). `GET /webhooks` lists your endpoints, `DELETE /webhooks/:id` deactivates one, and `GET /webhooks/:id/deliveries` shows recent deliveries with their status, attempts, last HTTP status and error.
+
+Events: `account.created`, `transfer.completed`, `transfer.refunded`. You receive the events for transfers you sent or received, and for accounts you opened. Each delivery is a `POST` with the event as JSON and these headers:
+
+- `Webhook-Id`: the delivery id (stable across retries, use it to deduplicate)
+- `Webhook-Event`: the event type
+- `Webhook-Signature`: `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>" with your secret>`
+
+Verify the signature and reject timestamps older than a few minutes, so captured deliveries can't be replayed (`verifyWebhookSignature` in `src/webhooks/signing.ts` shows how). Any non-2xx response or a timeout is retried with exponential backoff; after the last attempt the delivery is marked `dead`.
+
 ### `GET /transfers/:id`: one transfer with its ledger entries
 
 Visible to the owner of either account. Returns the transfer plus `ledger_entries`, for example:
@@ -310,6 +332,9 @@ Every error has the same shape:
 | 422 | `not_refundable` | Refunds and deposits can't be refunded |
 | 413 | `payload_too_large` | The body is over 100 KB |
 | 415 | `unsupported_media_type` | The body isn't `application/json` |
+| 400 | `invalid_url` / `invalid_events` | Bad webhook URL (not http(s), or private when not allowed) or event list |
+| 409 | `too_many_webhooks` | At most 10 active webhooks per user |
+| 404 | `webhook_not_found` | The webhook doesn't exist or isn't yours |
 | 422 | `risk_rejected` | Declined by risk checks. The body includes `reasons`, e.g. `["amount_over_limit"]` |
 | 429 | `rate_limited` | Too many requests. `Retry-After` says how many seconds to wait |
 | 422 | `insufficient_funds` | The source balance is lower than the amount |

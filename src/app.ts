@@ -11,6 +11,7 @@ import { accountsRouter } from './routes/accounts';
 import { authRouter } from './routes/auth';
 import { healthRouter } from './routes/health';
 import { transfersRouter } from './routes/transfers';
+import { webhooksRouter } from './routes/webhooks';
 
 export function createApp() {
   const app = express();
@@ -34,6 +35,7 @@ export function createApp() {
   app.use('/auth', authRouter);
   app.use('/accounts', requireAuth, perUser, accountsRouter);
   app.use('/transfers', requireAuth, perUser, transfersRouter);
+  app.use('/webhooks', requireAuth, perUser, webhooksRouter);
   app.use(notFound);
 
   app.use(errorHandler);
