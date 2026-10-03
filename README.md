@@ -43,6 +43,7 @@ npm run dev                   # http://localhost:3000
 | `npm run typecheck` | Type-checks `src/` and `test/` |
 | `npm run lint` | Runs ESLint |
 | `npm run worker:outbox` | Runs the outbox relay worker |
+| `npm run worker:notifications` | Runs the notification worker |
 | `npm run worker:webhooks` | Runs the webhook worker (event fan-out and HTTP delivery) |
 | `npm test` | Runs the test suite |
 | `npm run test:log` | Runs the tests and also writes the results to `test-results.log` |
@@ -101,7 +102,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 217 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 227 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -120,6 +121,7 @@ The suite has 217 tests. Most send real HTTP requests to the app running on a ra
 | `redis.test.ts` | Rate limits (headers, 429, sliding window, per user, concurrent requests, per-IP login limit, fail-open) and the account cache (hits, invalidation after transfers, ownership on hits, TTL) |
 | `risk.test.ts` | Each risk rule as a pure function; approve / review / reject on real transfers; velocity limit under 10 concurrent transfers; repeated rejections; replays and refunds skip risk |
 | `webhooks.test.ts` | Endpoint management and URL safety, fan-out to the right users, signed delivery, retries with growing delays, timeouts, dead deliveries, concurrent dispatchers, and API → RabbitMQ → webhook end to end. Uses its own database |
+| `notifications.test.ts` | Message wording per event, one notification per user per event, listing / unread count / mark read, ownership, and a real transfer through RabbitMQ. Uses its own database |
 | `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
 | `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
 
@@ -239,6 +241,12 @@ Returns `201` with a new transfer of kind `refund`, from the receiver back to th
 - The full amount is returned; the fee is not.
 - The receiver must still have the money (`422 insufficient_funds`).
 - `Idempotency-Key` is required, and works like it does for transfers.
+
+### Notifications
+
+`GET /notifications` returns your notifications, newest first, with `unread_count`. Filter with `?unread=true`, limit with `?limit=` (1–100). `POST /notifications/:id/read` marks one read; `POST /notifications/read-all` marks all.
+
+They're written by the notification worker from events: "You sent 12.50 to …bbbb (fee 0.13).", "You received 12.50 from …aaaa.", refunds, and account openings. A transfer flagged by risk checks says so.
 
 ### Webhooks
 

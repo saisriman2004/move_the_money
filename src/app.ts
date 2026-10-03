@@ -9,6 +9,7 @@ import { currentUserId, requireAuth } from './middleware/requireAuth';
 import { requireJson } from './middleware/requireJson';
 import { accountsRouter } from './routes/accounts';
 import { authRouter } from './routes/auth';
+import { notificationsRouter } from './routes/notifications';
 import { healthRouter } from './routes/health';
 import { transfersRouter } from './routes/transfers';
 import { webhooksRouter } from './routes/webhooks';
@@ -36,6 +37,7 @@ export function createApp() {
   app.use('/accounts', requireAuth, perUser, accountsRouter);
   app.use('/transfers', requireAuth, perUser, transfersRouter);
   app.use('/webhooks', requireAuth, perUser, webhooksRouter);
+  app.use('/notifications', requireAuth, perUser, notificationsRouter);
   app.use(notFound);
 
   app.use(errorHandler);

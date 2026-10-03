@@ -15,7 +15,8 @@
     "test:log": "tsx --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=spec --test-reporter-destination=test-results.log test/*.test.ts",
     "lint": "eslint .",
     "worker:outbox": "tsx src/workers/outbox-relay.ts",
-    "worker:webhooks": "tsx src/workers/webhooks.ts"
+    "worker:webhooks": "tsx src/workers/webhooks.ts",
+    "worker:notifications": "tsx src/workers/notifications.ts"
   },
   "engines": {
     "node": ">=22"
