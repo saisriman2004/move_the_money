@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { request as httpRequest } from 'node:http';
 import { after, before, describe, test } from 'node:test';
 import { startTestApp, type TestApp } from './helpers';
 
@@ -24,6 +25,19 @@ describe('API error handling', () => {
       error: 'unsupported_media_type',
       message: 'Request body must be JSON (Content-Type: application/json)',
     });
+  });
+
+  test('an empty body with no Content-Type (as some proxies forward a body-less POST) is not a 415', async () => {
+    // Chunked encoding with no data and no Content-Type: what a dev proxy sends for fetch(url, { method: 'POST' }).
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = httpRequest(`${app.baseUrl}/api/v1/notifications/read-all`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${app.user.token}`, 'transfer-encoding': 'chunked' },
+      }, (res) => { res.resume(); resolve(res.statusCode!); });
+      req.on('error', reject);
+      req.end();
+    });
+    assert.equal(status, 204);
   });
 
   test('an unknown route returns a JSON 404 with a message', async () => {
