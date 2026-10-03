@@ -14,7 +14,7 @@ after(async () => {
 
 describe('API error handling', () => {
   test('a non-JSON body returns 415 instead of being silently ignored', async () => {
-    const res = await fetch(`${app.baseUrl}/accounts`, {
+    const res = await fetch(`${app.baseUrl}/api/v1/accounts`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: 'first_name=Ada&last_name=Lovelace&starting_balance=100.00',
@@ -29,7 +29,7 @@ describe('API error handling', () => {
   test('an unknown route returns a JSON 404 with a message', async () => {
     const res = await app.request('GET', '/nope');
     assert.equal(res.status, 404);
-    assert.deepEqual(res.body, { error: 'not_found', message: 'No route for GET /nope' });
+    assert.deepEqual(res.body, { error: 'not_found', message: 'No route for GET /api/v1/nope' });
   });
 
   test('a wrong method on a known route returns 405 with an Allow header', async () => {

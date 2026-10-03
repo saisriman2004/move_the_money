@@ -73,10 +73,16 @@ npm run dev                   # http://localhost:3000
 | `WEBHOOK_TIMEOUT_MS` | `5000` | How long a customer endpoint has to answer |
 | `WEBHOOK_MAX_ATTEMPTS` / `WEBHOOK_RETRY_BASE_MS` | `8` / `10000` | Attempts before a delivery is dead; retry n waits base × 2^(n-1) |
 | `WEBHOOK_ALLOW_PRIVATE_URLS` | `false` | Allow webhook URLs on localhost or private networks. Development only |
+| `CORS_ORIGINS` | none | Comma-separated browser origins allowed to call the API |
+| `TRUST_PROXY` | `false` | Proxies in front of the API (`1` behind one load balancer), so client IPs come from `X-Forwarded-For` |
 | `TRANSFER_FEE_PERCENT` | `0` | Fee charged to the sender on top of each transfer, e.g. `1` or `0.25`. `.env.example` sets `1` |
 | `TEST_DATABASE_URL` | `DATABASE_URL` with `_test` appended to the database name | Used only by the tests |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` or `silent` |
 | `LOG_FILE` | `logs/app.log` | Set to `off` to log to the console only |
+
+### Request and correlation ids
+
+Every response carries `X-Request-Id` (this request) and `X-Correlation-Id` (the whole piece of work). Send your own `X-Correlation-Id` to tie several requests together; otherwise it equals the request id. It is logged with each request and carried into the events a request produces, so one id follows a transfer from the API call through RabbitMQ to its notifications and webhooks.
 
 ### Logs and debugging
 
@@ -104,7 +110,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 233 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 241 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -125,6 +131,7 @@ The suite has 233 tests. Most send real HTTP requests to the app running on a ra
 | `webhooks.test.ts` | Endpoint management and URL safety, fan-out to the right users, signed delivery, retries with growing delays, timeouts, dead deliveries, concurrent dispatchers, and API → RabbitMQ → webhook end to end. Uses its own database |
 | `notifications.test.ts` | Message wording per event, one notification per user per event, listing / unread count / mark read, ownership, and a real transfer through RabbitMQ. Uses its own database |
 | `reconciliation.test.ts` | A clean ledger reconciles; edited balances, unbalanced transfers, entries not matching amounts and missing entries are each reported; no false alarms during concurrent traffic. Uses its own database |
+| `gateway.test.ts` | `/api/v1` versioning, correlation ids from request to event, CORS allowlist and preflight, security headers, `X-Forwarded-For` behind a trusted proxy |
 | `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
 | `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
 
@@ -144,7 +151,7 @@ The script pauses a transfer after it has debited and credited inside its transa
 
 ## API
 
-All request and response bodies are JSON. Every endpoint except `/auth/register`, `/auth/login`, `/health` and `/ready` needs an access token:
+All endpoints below are under **`/api/v1`** (for example `POST /api/v1/transfers`); only `/health` and `/ready` are at the root. All request and response bodies are JSON. Every endpoint except `/auth/register`, `/auth/login`, `/health` and `/ready` needs an access token:
 
 ```
 Authorization: Bearer <token>
@@ -153,7 +160,7 @@ Authorization: Bearer <token>
 ### `POST /auth/register` and `POST /auth/login`
 
 ```bash
-curl -X POST localhost:3000/auth/register -H 'content-type: application/json' \
+curl -X POST localhost:3000/api/v1/auth/register -H 'content-type: application/json' \
   -d '{"email": "ada@example.com", "password": "at least 8 chars"}'
 ```
 
@@ -175,7 +182,7 @@ Amounts in requests and responses are always JSON strings. **Amounts are always 
 ### `POST /accounts`: create an account
 
 ```bash
-curl -X POST localhost:3000/accounts -H 'content-type: application/json' \
+curl -X POST localhost:3000/api/v1/accounts -H 'content-type: application/json' \
   -d '{"first_name": "Ada", "last_name": "Lovelace", "starting_balance": "100.00"}'
 ```
 
@@ -208,7 +215,7 @@ Returns the same shape as above, with the current `balance`.
 ### `POST /transfers`: move money
 
 ```bash
-curl -X POST localhost:3000/transfers -H 'content-type: application/json' \
+curl -X POST localhost:3000/api/v1/transfers -H 'content-type: application/json' \
   -H 'Idempotency-Key: order-1234' \
   -d '{"from_account_id": "…", "to_account_id": "…", "amount": "30.00"}'
 ```
@@ -234,7 +241,7 @@ curl -X POST localhost:3000/transfers -H 'content-type: application/json' \
 ### `POST /transfers/:id/refund`: refund a transfer you received
 
 ```bash
-curl -X POST localhost:3000/transfers/<id>/refund -H 'Authorization: Bearer …' -H 'Idempotency-Key: refund-1234'
+curl -X POST localhost:3000/api/v1/transfers/<id>/refund -H 'Authorization: Bearer …' -H 'Idempotency-Key: refund-1234'
 ```
 
 Returns `201` with a new transfer of kind `refund`, from the receiver back to the sender, with `refund_of` pointing at the original. The original transfer is never changed.
@@ -254,7 +261,7 @@ They're written by the notification worker from events: "You sent 12.50 to …bb
 ### Webhooks
 
 ```bash
-curl -X POST localhost:3000/webhooks -H 'Authorization: Bearer …' -H 'content-type: application/json' \
+curl -X POST localhost:3000/api/v1/webhooks -H 'Authorization: Bearer …' -H 'content-type: application/json' \
   -d '{"url": "https://example.com/hooks/payments", "events": ["transfer.completed", "transfer.refunded"]}'
 ```
 
@@ -286,7 +293,7 @@ Every transfer has a `kind`: `transfer` (between customers), `deposit` (an accou
 Returns the transfers the account sent or received, newest first. Each item is labelled from that account's point of view: money out is a `debit`, money in is a `credit`.
 
 ```bash
-curl 'localhost:3000/accounts/…/transactions?limit=10'
+curl 'localhost:3000/api/v1/accounts/…/transactions?limit=10'
 ```
 
 ```json

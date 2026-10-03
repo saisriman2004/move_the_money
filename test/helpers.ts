@@ -60,7 +60,11 @@ export interface TestApp {
   user: TestUser;
   /** Registers another user through the API. */
   registerUser(): Promise<TestUser>;
-  /** Sends a JSON request. A string body is sent as-is, so tests can send malformed JSON. */
+  /**
+   * Sends a JSON request. API paths are given unversioned ("/accounts") and sent to
+   * /api/v1; /health, /ready and explicit /api/... paths are sent as-is. A string body
+   * is sent as-is, so tests can send malformed JSON.
+   */
   request(method: string, path: string, body?: unknown, headers?: Record<string, string>): Promise<Response>;
   /** Creates an account through the API and returns its id. The balance must be greater than zero. */
   createAccount(startingBalance: string): Promise<string>;
@@ -127,7 +131,9 @@ export async function startTestApp(options: StartOptions = {}): Promise<TestApp>
       return { id: res.body.user.id, email, token: res.body.token };
     },
     async request(method, path, body, headers = {}) {
-      const res = await fetch(baseUrl + path, {
+      // Tests write API paths unversioned ("/accounts"); they live under /api/v1.
+      const url = /^\/(health|ready|api\/)/.test(path) ? path : `/api/v1${path}`;
+      const res = await fetch(baseUrl + url, {
         method,
         headers: { 'content-type': 'application/json', authorization: `Bearer ${app.user.token}`, ...headers },
         body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body),

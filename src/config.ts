@@ -66,6 +66,15 @@ function parseAmountSetting(name: string, fallback: string): string {
   return raw;
 }
 
+/** "false" (default), "true", or a number of proxy hops in front of the app. */
+function parseTrustProxy(value: string | undefined): boolean | number {
+  if (value === undefined || value === 'false') return false;
+  if (value === 'true') return true;
+  const hops = Number(value);
+  if (!Number.isInteger(hops) || hops < 0) throw new Error(`Invalid TRUST_PROXY: ${value}`);
+  return hops;
+}
+
 export const config = {
   port: parsePort(process.env.PORT),
   nodeEnv: process.env.NODE_ENV ?? 'development',
@@ -73,6 +82,10 @@ export const config = {
   logLevel: parseLogLevel(process.env.LOG_LEVEL),
   // Set LOG_FILE=off to log to the console only.
   logFile: process.env.LOG_FILE ?? 'logs/app.log',
+  // Browser origins allowed to call the API cross-origin, e.g. "https://app.example.com".
+  corsOrigins: (process.env.CORS_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean),
+  // Behind a load balancer, trust X-Forwarded-For so req.ip (used by the per-IP rate limit) is the client's.
+  trustProxy: parseTrustProxy(process.env.TRUST_PROXY),
   // Read on first use, so tools that never issue tokens (like the migration runner)
   // don't need the secret. The server checks it at startup in index.ts.
   get jwtSecret(): string {

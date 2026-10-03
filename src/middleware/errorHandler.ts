@@ -26,6 +26,7 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   res.locals.errorCode = 'internal_error';
   logger.error('unhandled error', {
     request_id: res.locals.requestId,
+    correlation_id: res.locals.correlationId,
     method: req.method,
     path: req.originalUrl,
     ...errorFields(err),

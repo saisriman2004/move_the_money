@@ -87,8 +87,8 @@ export async function createTransfer(input: {
   toAccountId: string;
   amount: string;
   idempotencyKey: string;
-  /** Carried into the published event as its correlation id. */
-  requestId?: string;
+  /** Carried into the published event, to trace it back to the request. */
+  correlationId?: string;
 }): Promise<TransferResult> {
   const { userId, fromAccountId, toAccountId, amount, idempotencyKey } = input;
   const run = withTransaction(async (client): Promise<TransferResult> => {
@@ -169,7 +169,7 @@ export async function createTransfer(input: {
       type: 'transfer.completed',
       aggregateId: transfer.id,
       data: { transfer, from_user_id: userId, to_user_id: destination.user_id, risk_reasons: risk.reasons },
-      correlationId: input.requestId,
+      correlationId: input.correlationId,
     });
     return { transfer, replayed: false };
   });
@@ -195,7 +195,7 @@ export async function refundTransfer(input: {
   userId: string;
   transferId: string;
   idempotencyKey: string;
-  requestId?: string;
+  correlationId?: string;
 }): Promise<TransferResult> {
   const { userId, idempotencyKey } = input;
   const transferId = input.transferId.toLowerCase();
@@ -264,7 +264,7 @@ export async function refundTransfer(input: {
       aggregateId: refund.id,
       // The refund moves money from the original receiver back to the original sender.
       data: { refund, original_transfer_id: transferId, from_user_id: userId, to_user_id: original.sender_owner },
-      correlationId: input.requestId,
+      correlationId: input.correlationId,
     });
     return { transfer: refund, replayed: false };
   });

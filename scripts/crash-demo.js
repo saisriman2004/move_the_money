@@ -29,13 +29,13 @@ async function api(method, path, body, headers = {}) {
 }
 
 async function createAccount(name, balance) {
-  const res = await api('POST', '/accounts', { first_name: name, last_name: 'Demo', starting_balance: balance });
+  const res = await api('POST', '/api/v1/accounts', { first_name: name, last_name: 'Demo', starting_balance: balance });
   return res.body.id;
 }
 
 (async () => {
   // Every API call needs a logged-in user; register a throwaway one for the demo.
-  const registered = await api('POST', '/auth/register', {
+  const registered = await api('POST', '/api/v1/auth/register', {
     email: `crash-demo-${Date.now()}@example.test`,
     password: 'crash-demo-password',
   });
@@ -74,7 +74,7 @@ async function createAccount(name, balance) {
   );
 
   // Send the transfer, but don't wait for the answer yet: it's going to hang.
-  const pending = api('POST', '/transfers', transfer, { 'Idempotency-Key': key });
+  const pending = api('POST', '/api/v1/transfers', transfer, { 'Idempotency-Key': key });
 
   // Find the transfer's database connection while it's stuck waiting on that INSERT.
   let pid;
@@ -101,10 +101,10 @@ async function createAccount(name, balance) {
   const { rows: stored } = await observer.query('SELECT count(*) FROM transfers WHERE idempotency_key = $1', [key]);
   console.log(`STEP 3  after the crash:                        ${await balances(alice, bob)}, transfers with this key: ${stored[0].count}`);
 
-  const retry = await api('POST', '/transfers', transfer, { 'Idempotency-Key': key });
+  const retry = await api('POST', '/api/v1/transfers', transfer, { 'Idempotency-Key': key });
   console.log(`STEP 4  client retries with the same key:       ${retry.status}, replayed: ${retry.headers.get('idempotent-replayed') ?? 'no'} -> ${await balances(alice, bob)}`);
 
-  const again = await api('POST', '/transfers', transfer, { 'Idempotency-Key': key });
+  const again = await api('POST', '/api/v1/transfers', transfer, { 'Idempotency-Key': key });
   console.log(`STEP 5  retries once more:                      ${again.status}, replayed: ${again.headers.get('idempotent-replayed') ?? 'no'}, same id: ${again.body.id === retry.body.id} -> ${await balances(alice, bob)}`);
 
   await observer.end();

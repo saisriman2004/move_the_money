@@ -6,20 +6,29 @@ import { logger } from '../logger';
 const REQUEST_ID_PATTERN = /^[\w.-]{1,100}$/;
 
 /**
- * Gives every request an id (returned in the X-Request-Id header) and logs one
- * line when the response finishes. Search the log for the id to find the
- * request and any error it caused.
+ * Gives every request an id (X-Request-Id) and a correlation id (X-Correlation-Id),
+ * and logs one line when the response finishes.
+ *
+ * The request id names this one HTTP request. The correlation id names the whole
+ * piece of work: a caller can pass its own to tie several requests together, and it
+ * travels on into outbox events, consumers and webhook logs. Without one, it equals
+ * the request id.
  */
 export const requestLogger: RequestHandler = (req, res, next) => {
   const incoming = req.get('X-Request-Id');
   const requestId = incoming && REQUEST_ID_PATTERN.test(incoming) ? incoming : randomUUID();
   res.locals.requestId = requestId;
   res.set('X-Request-Id', requestId);
+  const incomingCorrelation = req.get('X-Correlation-Id');
+  const correlationId = incomingCorrelation && REQUEST_ID_PATTERN.test(incomingCorrelation) ? incomingCorrelation : requestId;
+  res.locals.correlationId = correlationId;
+  res.set('X-Correlation-Id', correlationId);
 
   const started = process.hrtime.bigint();
   res.on('finish', () => {
     const fields = {
       request_id: requestId,
+      correlation_id: correlationId,
       method: req.method,
       path: req.originalUrl,
       status: res.statusCode,

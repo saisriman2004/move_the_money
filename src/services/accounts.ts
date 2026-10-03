@@ -21,7 +21,7 @@ export async function createAccount(input: {
   firstName: string;
   lastName: string;
   startingBalance: string;
-  requestId?: string;
+  correlationId?: string;
 }): Promise<Account> {
   return withTransaction(async (client) => {
     const { rows } = await client.query<Account>(
@@ -46,7 +46,7 @@ export async function createAccount(input: {
       type: 'account.created',
       aggregateId: account.id,
       data: { account, user_id: input.userId },
-      correlationId: input.requestId,
+      correlationId: input.correlationId,
     });
     return account;
   });
