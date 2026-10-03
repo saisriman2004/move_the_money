@@ -64,6 +64,7 @@ npm run dev                   # http://localhost:3000
 | `npm run worker:outbox` | Runs the outbox relay worker |
 | `npm run worker:notifications` | Runs the notification worker |
 | `npm run e2e` (in `frontend/`) | Browser end-to-end test against a running stack (default `http://localhost:8080`), using the installed Chrome |
+| `npm run load-test` | Load test against a running stack; see [docs/performance.md](docs/performance.md) |
 | `npm run reconcile` | Audits the ledger once, prints the report, exits 1 on any mismatch |
 | `npm run worker:reconciliation` | Audits the ledger every `RECONCILIATION_INTERVAL_MS` (default hourly) |
 | `npm run worker:webhooks` | Runs the webhook worker (event fan-out and HTTP delivery) |
@@ -193,6 +194,8 @@ The suite has 249 backend tests (plus 19 frontend unit tests). Most send real HT
 | `metrics.test.ts` | `/metrics` token, transfer outcomes and error codes, route templates without ids, outbox backlog gauge, worker metrics server |
 | `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
 | `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
+
+A browser end-to-end test (`frontend/e2e/app.e2e.mjs`) drives the web app against the full Docker stack, and a load test (`scripts/load-test.ts`) measures throughput and exact latency percentiles; results are in [docs/performance.md](docs/performance.md).
 
 The concurrency tests run each scenario 5 times, because a race can pass by luck in a single run. During development, each important safeguard (lock ordering, the guarded debit, the idempotency lock) was removed on purpose to confirm that the tests fail without it.
 

@@ -13,6 +13,10 @@ x-app-env: &app-env
   TRANSFER_FEE_PERCENT: ${TRANSFER_FEE_PERCENT:-1}
   # Only for this demo, so webhooks can point at a container or the host.
   WEBHOOK_ALLOW_PRIVATE_URLS: ${WEBHOOK_ALLOW_PRIVATE_URLS:-true}
+  # Overridable for load tests, which would otherwise (correctly) be rate limited and risk-rejected.
+  RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-100}
+  RISK_MAX_TRANSFERS_PER_MINUTE: ${RISK_MAX_TRANSFERS_PER_MINUTE:-10}
+  RISK_REVIEW_AMOUNT: ${RISK_REVIEW_AMOUNT:-1000.00}
   LOG_LEVEL: info
 
 x-worker: &worker

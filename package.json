@@ -18,7 +18,8 @@
     "worker:webhooks": "tsx src/workers/webhooks.ts",
     "worker:notifications": "tsx src/workers/notifications.ts",
     "reconcile": "tsx scripts/reconcile.ts",
-    "worker:reconciliation": "tsx src/workers/reconciliation.ts"
+    "worker:reconciliation": "tsx src/workers/reconciliation.ts",
+    "load-test": "tsx scripts/load-test.ts"
   },
   "engines": {
     "node": ">=22"

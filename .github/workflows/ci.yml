@@ -73,3 +73,23 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  # Builds and starts the full stack with Docker Compose, then drives the web app in Chrome.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up -d --build --wait
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      # GitHub's Ubuntu runners include Google Chrome, which playwright-core drives directly.
+      - run: npm run e2e
+        working-directory: frontend
+      - if: failure()
+        run: docker compose logs --no-color | tail -300
