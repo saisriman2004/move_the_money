@@ -8,11 +8,16 @@ import { Client } from 'pg';
  * Tests run against TEST_DATABASE_URL, or DATABASE_URL with "_test" appended
  * to the database name, never the development database itself.
  */
-function testDatabaseUrl(): URL {
-  if (process.env.TEST_DATABASE_URL) return new URL(process.env.TEST_DATABASE_URL);
-  if (!process.env.DATABASE_URL) throw new Error('Set TEST_DATABASE_URL or DATABASE_URL to run tests');
-  const url = new URL(process.env.DATABASE_URL);
-  url.pathname = `${url.pathname}_test`;
+function testDatabaseUrl(isolated?: string): URL {
+  let url: URL;
+  if (process.env.TEST_DATABASE_URL) {
+    url = new URL(process.env.TEST_DATABASE_URL);
+  } else {
+    if (!process.env.DATABASE_URL) throw new Error('Set TEST_DATABASE_URL or DATABASE_URL to run tests');
+    url = new URL(process.env.DATABASE_URL);
+    url.pathname = `${url.pathname}_test`;
+  }
+  if (isolated) url.pathname = `${url.pathname}_${isolated}`;
   return url;
 }
 
@@ -71,9 +76,18 @@ export interface TestApp {
   close(): Promise<void>;
 }
 
+export interface StartOptions {
+  /**
+   * Use a database of this test file's own (e.g. "outbox" → move_money_test_outbox).
+   * Needed by tests that process every row of a table, such as the outbox relay,
+   * so that test files running in parallel don't consume each other's rows.
+   */
+  isolatedDatabase?: string;
+}
+
 /** Creates and migrates the test database, then starts the app on a random port. */
-export async function startTestApp(): Promise<TestApp> {
-  const url = testDatabaseUrl();
+export async function startTestApp(options: StartOptions = {}): Promise<TestApp> {
+  const url = testDatabaseUrl(options.isolatedDatabase);
   await ensureDatabaseExists(url);
   process.env.DATABASE_URL = url.toString();
   // Keep test output readable; a test that checks logging turns it back on.

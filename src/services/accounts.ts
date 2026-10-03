@@ -1,5 +1,6 @@
 import { pool, withTransaction } from '../db';
 import { postLedgerEntries, SYSTEM_ACCOUNTS } from '../ledger';
+import { enqueueEvent } from '../outbox';
 
 export interface Account {
   id: string;
@@ -20,6 +21,7 @@ export async function createAccount(input: {
   firstName: string;
   lastName: string;
   startingBalance: string;
+  requestId?: string;
 }): Promise<Account> {
   return withTransaction(async (client) => {
     const { rows } = await client.query<Account>(
@@ -40,6 +42,12 @@ export async function createAccount(input: {
       { accountId: SYSTEM_ACCOUNTS.funding, direction: 'debit', amount: input.startingBalance },
       { accountId: account.id, direction: 'credit', amount: input.startingBalance },
     ]);
+    await enqueueEvent(client, {
+      type: 'account.created',
+      aggregateId: account.id,
+      data: { account, user_id: input.userId },
+      correlationId: input.requestId,
+    });
     return account;
   });
 }

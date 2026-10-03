@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
     "test": "tsx --test test/*.test.ts",
     "test:log": "tsx --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=spec --test-reporter-destination=test-results.log test/*.test.ts",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "worker:outbox": "tsx src/workers/outbox-relay.ts"
   },
   "engines": {
     "node": ">=22"

@@ -11,7 +11,7 @@ PostgreSQL stays the source of truth for money. Redis and RabbitMQ never decide 
 | 3 | Authentication and account ownership | done |
 | 4 | Double-entry ledger | done |
 | 5 | Transfer fees and compensating refunds | done |
-| 6 | Transactional outbox | planned |
+| 6 | Transactional outbox | done |
 | 7 | RabbitMQ event processing | planned |
 | 8 | Redis rate limiting and caching | planned |
 | 9 | Risk evaluation | planned |

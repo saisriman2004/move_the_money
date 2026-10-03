@@ -19,6 +19,7 @@ accountsRouter.post('/', async (req, res) => {
     firstName: parseName(requireField(body, 'first_name'), 'first_name'),
     lastName: parseName(requireField(body, 'last_name'), 'last_name'),
     startingBalance: parsePositiveAmount(requireField(body, 'starting_balance'), 'starting_balance'),
+    requestId: res.locals.requestId,
   });
   res.status(201).json(account);
 });

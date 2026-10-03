@@ -3,6 +3,7 @@ import { config } from '../config';
 import { pool, withTransaction } from '../db';
 import { HttpError } from '../errors';
 import { postLedgerEntries, SYSTEM_ACCOUNTS, type LedgerLine } from '../ledger';
+import { enqueueEvent } from '../outbox';
 
 export interface Transfer {
   id: string;
@@ -82,6 +83,8 @@ export async function createTransfer(input: {
   toAccountId: string;
   amount: string;
   idempotencyKey: string;
+  /** Carried into the published event as its correlation id. */
+  requestId?: string;
 }): Promise<TransferResult> {
   const { userId, fromAccountId, toAccountId, amount, idempotencyKey } = input;
   return withTransaction(async (client) => {
@@ -108,7 +111,8 @@ export async function createTransfer(input: {
       throw new HttpError(404, 'account_not_found', 'Source account not found');
     }
     // System accounts (funding, fees) can't receive ordinary transfers.
-    if (!locked.some((row) => row.id === toAccountId.toLowerCase() && row.kind === 'customer')) {
+    const destination = locked.find((row) => row.id === toAccountId.toLowerCase() && row.kind === 'customer');
+    if (!destination) {
       throw new HttpError(404, 'account_not_found', 'Destination account not found');
     }
 
@@ -147,6 +151,12 @@ export async function createTransfer(input: {
       );
     }
     await postLedgerEntries(client, transfer.id, lines);
+    await enqueueEvent(client, {
+      type: 'transfer.completed',
+      aggregateId: transfer.id,
+      data: { transfer, from_user_id: userId, to_user_id: destination.user_id },
+      correlationId: input.requestId,
+    });
     return { transfer, replayed: false };
   });
 }
@@ -160,6 +170,7 @@ export async function refundTransfer(input: {
   userId: string;
   transferId: string;
   idempotencyKey: string;
+  requestId?: string;
 }): Promise<TransferResult> {
   const { userId, idempotencyKey } = input;
   const transferId = input.transferId.toLowerCase();
@@ -223,6 +234,13 @@ export async function refundTransfer(input: {
       { accountId: original.to_account_id, direction: 'debit', amount: original.amount },
       { accountId: original.from_account_id, direction: 'credit', amount: original.amount },
     ]);
+    await enqueueEvent(client, {
+      type: 'transfer.refunded',
+      aggregateId: refund.id,
+      // The refund moves money from the original receiver back to the original sender.
+      data: { refund, original_transfer_id: transferId, from_user_id: userId, to_user_id: original.sender_owner },
+      correlationId: input.requestId,
+    });
     return { transfer: refund, replayed: false };
   });
 }

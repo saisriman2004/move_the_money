@@ -25,6 +25,7 @@ transfersRouter.post('/', async (req, res) => {
     toAccountId,
     amount,
     idempotencyKey,
+    requestId: res.locals.requestId,
   });
   if (replayed) res.set('Idempotent-Replayed', 'true');
   res.status(201).json(transfer);
@@ -43,7 +44,12 @@ transfersRouter.post('/:id/refund', async (req, res) => {
   const transferId = parseAccountId(req.params.id, 'Transfer id');
   parseBody(req.body, []);
   const idempotencyKey = parseIdempotencyKey(req.get('Idempotency-Key'));
-  const { transfer, replayed } = await refundTransfer({ userId: currentUserId(res), transferId, idempotencyKey });
+  const { transfer, replayed } = await refundTransfer({
+    userId: currentUserId(res),
+    transferId,
+    idempotencyKey,
+    requestId: res.locals.requestId,
+  });
   if (replayed) res.set('Idempotent-Replayed', 'true');
   res.status(201).json(transfer);
 });

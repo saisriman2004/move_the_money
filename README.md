@@ -41,6 +41,7 @@ npm run dev                   # http://localhost:3000
 | `npm run migrate` | Applies pending migrations |
 | `npm run typecheck` | Type-checks `src/` and `test/` |
 | `npm run lint` | Runs ESLint |
+| `npm run worker:outbox` | Runs the outbox relay worker |
 | `npm test` | Runs the test suite |
 | `npm run test:log` | Runs the tests and also writes the results to `test-results.log` |
 
@@ -83,7 +84,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 160 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 169 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -97,6 +98,7 @@ The suite has 160 tests. Most send real HTTP requests to the app running on a ra
 | `errors.test.ts` | 415, 404 and 405 responses |
 | `fees-refunds.test.ts` | 1% fees and rounding, fee ledger entries, balance must cover amount + fee, refunds (ownership, once only, concurrent, replay, insufficient funds) |
 | `ledger.test.ts` | Balanced entries per transfer, balances rebuilt from the ledger, immutable entries, unbalanced writes rejected at commit, system accounts |
+| `outbox.test.ts` | Events written in the money transaction (and rolled back with it), relay ordering, retries after a failed publish, concurrent relays publishing each event exactly once. Uses its own database |
 | `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
 | `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
 
@@ -330,6 +332,12 @@ Every movement of money is a row in `transfers` plus balanced rows in `ledger_en
 - **Enforced by the database, not just the code.** A trigger rejects any `UPDATE` or `DELETE` on ledger entries, and a deferred constraint trigger rejects the `COMMIT` of any transfer whose debits don't equal its credits.
 - **Balances have more room than amounts.** One amount is capped at 18 integer digits, but a balance is `NUMERIC(38,2)`, because it can accumulate many amounts (and funding holds the negated total).
 - **Existing data was backfilled.** The migration gave every pre-ledger transfer its entries, and recorded any unexplained opening balance as an `adjustment` from `funding`. Before applying it, it was run against a copy of a real development database: afterwards every account reconciled and all balances summed to 0.00.
+
+### Transactional outbox
+
+Every money movement also writes a domain event (`account.created`, `transfer.completed`, `transfer.refunded`) into `outbox_events`, **in the same transaction**. An event therefore exists if and only if the money moved: a rolled-back transfer leaves no event, and a committed one can't lose its event if the broker is down.
+
+A separate relay worker (`npm run worker:outbox`) publishes pending events oldest first and marks them published. It claims rows with `FOR UPDATE SKIP LOCKED`, so several relays can run at once without publishing an event twice. Delivery is at-least-once: if the relay dies after publishing but before recording it, the event is sent again, so consumers deduplicate by event id.
 
 ### Concurrency strategy
 
