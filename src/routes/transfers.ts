@@ -3,11 +3,8 @@ import { HttpError } from '../errors';
 import { methodNotAllowed } from '../middleware/notFound';
 import { currentUserId } from '../middleware/requireAuth';
 import { parsePositiveAmount } from '../money';
-import { createTransfer, findTransferForUser } from '../services/transfers';
-import { parseAccountId, parseBody, requireField } from '../validation';
-
-// Printable ASCII without spaces, so keys are safe to log and compare byte-for-byte.
-const IDEMPOTENCY_KEY_PATTERN = /^[\x21-\x7e]{1,255}$/;
+import { createTransfer, findTransferForUser, refundTransfer } from '../services/transfers';
+import { parseAccountId, parseBody, parseIdempotencyKey, requireField } from '../validation';
 
 export const transfersRouter = Router();
 
@@ -20,20 +17,7 @@ transfersRouter.post('/', async (req, res) => {
     throw new HttpError(400, 'same_account', 'from_account_id and to_account_id must differ');
   }
   const amount = parsePositiveAmount(requireField(body, 'amount'), 'amount');
-
-  // Required, so the same transfer submitted twice is only ever applied once:
-  // without a client-chosen key, a retry and a second intentional transfer look identical.
-  const idempotencyKey = req.get('Idempotency-Key');
-  if (idempotencyKey === undefined) {
-    throw new HttpError(400, 'missing_idempotency_key', 'Idempotency-Key header is required');
-  }
-  if (!IDEMPOTENCY_KEY_PATTERN.test(idempotencyKey)) {
-    throw new HttpError(
-      400,
-      'invalid_idempotency_key',
-      'Idempotency-Key must be 1-255 printable ASCII characters without spaces',
-    );
-  }
+  const idempotencyKey = parseIdempotencyKey(req.get('Idempotency-Key'));
 
   const { transfer, replayed } = await createTransfer({
     userId: currentUserId(res),
@@ -55,5 +39,15 @@ transfersRouter.get('/:id', async (req, res) => {
   res.json(transfer);
 });
 
+transfersRouter.post('/:id/refund', async (req, res) => {
+  const transferId = parseAccountId(req.params.id, 'Transfer id');
+  parseBody(req.body, []);
+  const idempotencyKey = parseIdempotencyKey(req.get('Idempotency-Key'));
+  const { transfer, replayed } = await refundTransfer({ userId: currentUserId(res), transferId, idempotencyKey });
+  if (replayed) res.set('Idempotent-Replayed', 'true');
+  res.status(201).json(transfer);
+});
+
 transfersRouter.all('/', methodNotAllowed('POST'));
 transfersRouter.all('/:id', methodNotAllowed('GET, HEAD'));
+transfersRouter.all('/:id/refund', methodNotAllowed('POST'));

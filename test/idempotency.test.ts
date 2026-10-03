@@ -97,7 +97,7 @@ describe('Idempotency-Key on POST /transfers', () => {
       assert.equal(res.status, 409);
       assert.deepEqual(res.body, {
         error: 'idempotency_key_conflict',
-        message: 'Idempotency-Key was already used for a transfer with different parameters',
+        message: 'Idempotency-Key was already used for a different request',
       });
       assert.equal(await app.balance(from), '90.00');
       assert.equal(await app.balance(to), '110.00');

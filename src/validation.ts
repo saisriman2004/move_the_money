@@ -72,3 +72,24 @@ export function parsePassword(value: unknown): string {
   }
   return value;
 }
+
+// Printable ASCII without spaces, so keys are safe to compare byte-for-byte.
+const IDEMPOTENCY_KEY_PATTERN = /^[\x21-\x7e]{1,255}$/;
+
+/**
+ * Reads the required Idempotency-Key header. Without a client-chosen key, a retry
+ * and a second intentional request look identical, so every money movement needs one.
+ */
+export function parseIdempotencyKey(header: string | undefined): string {
+  if (header === undefined) {
+    throw new HttpError(400, 'missing_idempotency_key', 'Idempotency-Key header is required');
+  }
+  if (!IDEMPOTENCY_KEY_PATTERN.test(header)) {
+    throw new HttpError(
+      400,
+      'invalid_idempotency_key',
+      'Idempotency-Key must be 1-255 printable ASCII characters without spaces',
+    );
+  }
+  return header;
+}

@@ -42,6 +42,15 @@ function parsePositiveInt(name: string, fallback: number): number {
   return value;
 }
 
+/** A percentage such as "1" or "0.25", from 0 to 100, kept as a string for exact SQL math. */
+function parseFeePercent(value: string | undefined): string {
+  const percent = value ?? '0';
+  if (!/^\d{1,3}(\.\d{1,4})?$/.test(percent) || Number(percent) > 100) {
+    throw new Error(`Invalid TRANSFER_FEE_PERCENT: ${value}`);
+  }
+  return percent;
+}
+
 export const config = {
   port: parsePort(process.env.PORT),
   nodeEnv: process.env.NODE_ENV ?? 'development',
@@ -56,4 +65,6 @@ export const config = {
   },
   // Access tokens are short-lived; there is no refresh token yet.
   jwtTtlSeconds: parsePositiveInt('JWT_TTL_SECONDS', 3600),
+  // Charged to the sender on top of the amount, rounded to the cent. 0 disables fees.
+  transferFeePercent: parseFeePercent(process.env.TRANSFER_FEE_PERCENT),
 };

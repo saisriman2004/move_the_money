@@ -52,6 +52,7 @@ npm run dev                   # http://localhost:3000
 | `PORT` | `3000` | Must be a valid port number |
 | `JWT_SECRET` | none (required by the server) | At least 32 characters; signs access tokens. Migrations don't need it |
 | `JWT_TTL_SECONDS` | `3600` | Access token lifetime |
+| `TRANSFER_FEE_PERCENT` | `0` | Fee charged to the sender on top of each transfer, e.g. `1` or `0.25`. `.env.example` sets `1` |
 | `TEST_DATABASE_URL` | `DATABASE_URL` with `_test` appended to the database name | Used only by the tests |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` or `silent` |
 | `LOG_FILE` | `logs/app.log` | Set to `off` to log to the console only |
@@ -82,7 +83,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 145 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 160 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -94,6 +95,7 @@ The suite has 145 tests. Most send real HTTP requests to the app running on a ra
 | `concurrency.test.ts` | Concurrent overspending, 100 opposite A↔B transfers without deadlock, total money conserved |
 | `history.test.ts` | Transaction history: direction labels, ordering, `limit` |
 | `errors.test.ts` | 415, 404 and 405 responses |
+| `fees-refunds.test.ts` | 1% fees and rounding, fee ledger entries, balance must cover amount + fee, refunds (ownership, once only, concurrent, replay, insufficient funds) |
 | `ledger.test.ts` | Balanced entries per transfer, balances rebuilt from the ledger, immutable entries, unbalanced writes rejected at commit, system accounts |
 | `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
 | `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
@@ -201,6 +203,20 @@ curl -X POST localhost:3000/transfers -H 'content-type: application/json' \
   - Same key and a different request (different accounts or amount): `409`.
   - A failed request, such as one with insufficient funds, does not use up its key, so it can be retried.
 
+### `POST /transfers/:id/refund`: refund a transfer you received
+
+```bash
+curl -X POST localhost:3000/transfers/<id>/refund -H 'Authorization: Bearer …' -H 'Idempotency-Key: refund-1234'
+```
+
+Returns `201` with a new transfer of kind `refund`, from the receiver back to the sender, with `refund_of` pointing at the original. The original transfer is never changed.
+
+- Only the owner of the receiving account can refund (`403 refund_not_allowed` for the sender, `404` for anyone else).
+- A transfer can be refunded once (`409 already_refunded`). Refunds and deposits can't be refunded (`422 not_refundable`).
+- The full amount is returned; the fee is not.
+- The receiver must still have the money (`422 insufficient_funds`).
+- `Idempotency-Key` is required, and works like it does for transfers.
+
 ### `GET /transfers/:id`: one transfer with its ledger entries
 
 Visible to the owner of either account. Returns the transfer plus `ledger_entries`, for example:
@@ -212,7 +228,7 @@ Visible to the owner of either account. Returns the transfer plus `ledger_entrie
     { "account_id": "B", "direction": "credit", "amount": "7.00", "created_at": "…" } ] }
 ```
 
-Every transfer has a `kind`: `transfer` (between customers), `deposit` (an account's opening balance) or `adjustment` (written once by the ledger migration for pre-ledger data).
+Every transfer has a `kind`: `transfer` (between customers), `deposit` (an account's opening balance), `refund`, or `adjustment` (written once by the ledger migration for pre-ledger data). Transfers also carry `fee` and `refund_of`, and the detail view adds `refunded_by`.
 
 ### `GET /accounts/:id/transactions`: transaction history
 
@@ -270,7 +286,10 @@ Every error has the same shape:
 | 404 | `transfer_not_found` | The transfer doesn't exist or you aren't a party to it |
 | 404 | `not_found` | Unknown route |
 | 405 | `method_not_allowed` | Known route, wrong method. The `Allow` header lists the valid methods. |
-| 409 | `idempotency_key_conflict` | The key was already used for a different transfer |
+| 409 | `idempotency_key_conflict` | The key was already used for a different request |
+| 409 | `already_refunded` | The transfer was already refunded |
+| 403 | `refund_not_allowed` | Only the receiving account's owner can refund |
+| 422 | `not_refundable` | Refunds and deposits can't be refunded |
 | 413 | `payload_too_large` | The body is over 100 KB |
 | 415 | `unsupported_media_type` | The body isn't `application/json` |
 | 422 | `insufficient_funds` | The source balance is lower than the amount |
