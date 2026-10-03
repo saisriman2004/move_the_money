@@ -3,7 +3,7 @@ import { HttpError } from '../errors';
 import { methodNotAllowed } from '../middleware/notFound';
 import { currentUserId } from '../middleware/requireAuth';
 import { parsePositiveAmount } from '../money';
-import { createTransfer } from '../services/transfers';
+import { createTransfer, findTransferForUser } from '../services/transfers';
 import { parseAccountId, parseBody, requireField } from '../validation';
 
 // Printable ASCII without spaces, so keys are safe to log and compare byte-for-byte.
@@ -46,4 +46,14 @@ transfersRouter.post('/', async (req, res) => {
   res.status(201).json(transfer);
 });
 
+transfersRouter.get('/:id', async (req, res) => {
+  const id = parseAccountId(req.params.id, 'Transfer id');
+  const transfer = await findTransferForUser(id, currentUserId(res));
+  if (!transfer) {
+    throw new HttpError(404, 'transfer_not_found', 'Transfer not found');
+  }
+  res.json(transfer);
+});
+
 transfersRouter.all('/', methodNotAllowed('POST'));
+transfersRouter.all('/:id', methodNotAllowed('GET, HEAD'));

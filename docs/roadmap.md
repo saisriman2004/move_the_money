@@ -9,7 +9,7 @@ PostgreSQL stays the source of truth for money. Redis and RabbitMQ never decide 
 | 1 | Harden tests, logging, health checks | done |
 | 2 | CI pipeline and linting | done |
 | 3 | Authentication and account ownership | done |
-| 4 | Double-entry ledger | planned |
+| 4 | Double-entry ledger | done |
 | 5 | Transfer fees and compensating refunds | planned |
 | 6 | Transactional outbox | planned |
 | 7 | RabbitMQ event processing | planned |

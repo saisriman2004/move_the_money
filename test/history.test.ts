@@ -3,6 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { after, before, describe, test } from 'node:test';
 import { MISSING_ID, startTestApp, type TestApp } from './helpers';
 
+const FUNDING = '00000000-0000-4000-8000-000000000001';
+
 let app: TestApp;
 
 before(async () => {
@@ -36,10 +38,20 @@ async function seedTransfers(from: string, to: string, n: number): Promise<strin
 
 describe('GET /accounts/:id/transactions', () => {
   test('returns an empty list for an account with no transfers', async () => {
-    const id = await app.createAccount('10.00');
+    const id = await app.createEmptyAccount();
     const res = await history(id);
     assert.equal(res.status, 200);
     assert.deepEqual(res.body, { data: [] });
+  });
+
+  test("a new account's history starts with its opening deposit from the funding account", async () => {
+    const id = await app.createAccount('10.00');
+    const { data } = (await history(id)).body;
+    assert.equal(data.length, 1);
+    assert.equal(data[0].kind, 'deposit');
+    assert.equal(data[0].direction, 'credit');
+    assert.equal(data[0].from_account_id, FUNDING);
+    assert.equal(data[0].amount, '10.00');
   });
 
   test('includes transfers in both directions, labelled from the account\'s point of view', async () => {
@@ -51,13 +63,15 @@ describe('GET /accounts/:id/transactions', () => {
     const res = await history(alice);
 
     assert.equal(res.status, 200);
-    assert.deepEqual(res.body.data, [
+    // Newest first, followed by the opening deposit.
+    assert.deepEqual(res.body.data.slice(0, 2), [
       { ...received, direction: 'credit' },
       { ...sent, direction: 'debit' },
     ]);
+    assert.equal(res.body.data[2].kind, 'deposit');
     // The same two transfers, seen from Bob's side, have the opposite labels.
     const bobs = (await history(bob)).body.data;
-    assert.deepEqual(bobs.map((t: { direction: string }) => t.direction), ['debit', 'credit']);
+    assert.deepEqual(bobs.slice(0, 2).map((t: { direction: string }) => t.direction), ['debit', 'credit']);
   });
 
   test('amounts are strings and every field is present', async () => {
@@ -65,7 +79,8 @@ describe('GET /accounts/:id/transactions', () => {
     const b = await app.createEmptyAccount();
     await transfer(a, b, '0.10');
     const [item] = (await history(a)).body.data;
-    assert.deepEqual(Object.keys(item).sort(), ['amount', 'created_at', 'direction', 'from_account_id', 'id', 'to_account_id']);
+    assert.deepEqual(Object.keys(item).sort(), ['amount', 'created_at', 'direction', 'from_account_id', 'id', 'kind', 'to_account_id']);
+    assert.equal(item.kind, 'transfer');
     assert.equal(item.amount, '0.10');
   });
 
@@ -73,7 +88,7 @@ describe('GET /accounts/:id/transactions', () => {
     const [a, b, c] = await Promise.all([app.createAccount('50.00'), app.createAccount('50.00'), app.createAccount('50.00')]);
     await transfer(b, c, '5.00');
     await transfer(a, b, '1.00');
-    const data = (await history(a)).body.data;
+    const data = (await history(a)).body.data.filter((t: { kind: string }) => t.kind === 'transfer');
     assert.equal(data.length, 1);
     assert.equal(data[0].to_account_id, b);
   });
@@ -123,7 +138,7 @@ describe('GET /accounts/:id/transactions', () => {
     const b = await app.createEmptyAccount();
     await transfer(a, b, '1.00');
     const data = (await history(a.toUpperCase())).body.data;
-    assert.equal(data.length, 1);
+    assert.equal(data.length, 2); // the transfer, then the opening deposit
     assert.equal(data[0].direction, 'debit');
   });
 

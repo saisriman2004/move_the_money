@@ -9,6 +9,7 @@ The API enforces these rules, and the tests check each one against a real databa
 - **Exact amounts.** Money is never stored or calculated as a JavaScript floating-point number.
 - **Safe retries.** Retrying a transfer with the same `Idempotency-Key` never moves the money twice.
 - **Owned accounts.** Users log in, and money can only leave an account its owner controls.
+- **A double-entry ledger.** Every movement writes balanced debit and credit entries that can't be edited, and every balance can be rebuilt from them.
 
 See [BUILD_LOG.md](BUILD_LOG.md) for how this was built, including how AI was used.
 
@@ -81,7 +82,7 @@ npm test
 
 The tests need PostgreSQL running, but no manual setup. They create a separate `move_money_test` database if it doesn't exist and migrate it. They never touch the development database.
 
-The suite has 133 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
+The suite has 145 tests. Most send real HTTP requests to the app running on a random port, and all of them use a real database with no mocks.
 
 | File | Covers |
 |---|---|
@@ -93,6 +94,7 @@ The suite has 133 tests. Most send real HTTP requests to the app running on a ra
 | `concurrency.test.ts` | Concurrent overspending, 100 opposite A↔B transfers without deadlock, total money conserved |
 | `history.test.ts` | Transaction history: direction labels, ordering, `limit` |
 | `errors.test.ts` | 415, 404 and 405 responses |
+| `ledger.test.ts` | Balanced entries per transfer, balances rebuilt from the ledger, immutable entries, unbalanced writes rejected at commit, system accounts |
 | `logging.test.ts` | Requests are written to the log file with id, status and error code; bodies and keys never are |
 | `health.test.ts` | `/health` and `/ready`, including `/ready` returning 503 when the database is down |
 
@@ -199,6 +201,19 @@ curl -X POST localhost:3000/transfers -H 'content-type: application/json' \
   - Same key and a different request (different accounts or amount): `409`.
   - A failed request, such as one with insufficient funds, does not use up its key, so it can be retried.
 
+### `GET /transfers/:id`: one transfer with its ledger entries
+
+Visible to the owner of either account. Returns the transfer plus `ledger_entries`, for example:
+
+```json
+{ "id": "…", "kind": "transfer", "from_account_id": "A", "to_account_id": "B", "amount": "7.00", "created_at": "…",
+  "ledger_entries": [
+    { "account_id": "A", "direction": "debit",  "amount": "7.00", "created_at": "…" },
+    { "account_id": "B", "direction": "credit", "amount": "7.00", "created_at": "…" } ] }
+```
+
+Every transfer has a `kind`: `transfer` (between customers), `deposit` (an account's opening balance) or `adjustment` (written once by the ledger migration for pre-ledger data).
+
 ### `GET /accounts/:id/transactions`: transaction history
 
 Returns the transfers the account sent or received, newest first. Each item is labelled from that account's point of view: money out is a `debit`, money in is a `credit`.
@@ -252,6 +267,7 @@ Every error has the same shape:
 | 400 | `invalid_idempotency_key` | The header is empty, too long, or has spaces or non-ASCII characters |
 | 400 | `invalid_limit` | `limit` isn't an integer from 1 to 100 |
 | 404 | `account_not_found` | The account doesn't exist |
+| 404 | `transfer_not_found` | The transfer doesn't exist or you aren't a party to it |
 | 404 | `not_found` | Unknown route |
 | 405 | `method_not_allowed` | Known route, wrong method. The `Allow` header lists the valid methods. |
 | 409 | `idempotency_key_conflict` | The key was already used for a different transfer |
@@ -286,6 +302,15 @@ Both are exact. `NUMERIC(20,2)` was chosen because:
 - The stored value, the API value and the value a person reads are all the same (`"100.50"`), so no conversion layer between cents and decimals is needed.
 - `pg` returns `NUMERIC` as a string, and the application keeps it that way. Balance checks and arithmetic happen in SQL, so money never becomes a JavaScript number.
 - 18 integer digits is far beyond any realistic balance. A JSON number loses precision well before that, which is one more reason amounts must be sent as strings.
+
+### Double-entry ledger
+
+Every movement of money is a row in `transfers` plus balanced rows in `ledger_entries`: a debit on the account money leaves, a credit on the account it reaches. `accounts.balance` is kept as a running total for fast reads and locking, and the ledger is the audit trail it can be rebuilt from (the `account_ledger_balances` view does exactly that).
+
+- **Where money comes from.** Two platform-owned system accounts exist: `funding` and `fees`. An account's opening balance is a `deposit` from `funding`, which goes negative by everything ever deposited, so the sum of all balances is always exactly zero.
+- **Enforced by the database, not just the code.** A trigger rejects any `UPDATE` or `DELETE` on ledger entries, and a deferred constraint trigger rejects the `COMMIT` of any transfer whose debits don't equal its credits.
+- **Balances have more room than amounts.** One amount is capped at 18 integer digits, but a balance is `NUMERIC(38,2)`, because it can accumulate many amounts (and funding holds the negated total).
+- **Existing data was backfilled.** The migration gave every pre-ledger transfer its entries, and recorded any unexplained opening balance as an `adjustment` from `funding`. Before applying it, it was run against a copy of a real development database: afterwards every account reconciled and all balances summed to 0.00.
 
 ### Concurrency strategy
 

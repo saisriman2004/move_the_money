@@ -20,7 +20,8 @@ function transfer(body: unknown) {
 
 async function transferCount(accountId: string): Promise<number> {
   const [row] = await app.query<{ count: string }>(
-    'SELECT count(*) FROM transfers WHERE from_account_id = $1 OR to_account_id = $1',
+    // Ordinary transfers only; an account's opening deposit is also a transfer row.
+    "SELECT count(*) FROM transfers WHERE kind = 'transfer' AND (from_account_id = $1 OR to_account_id = $1)",
     [accountId],
   );
   return Number(row!.count);
