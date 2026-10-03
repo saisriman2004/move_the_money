@@ -23,6 +23,9 @@ jobs:
           --health-retries 10
       rabbitmq:
         image: rabbitmq:4
+        env:
+          RABBITMQ_DEFAULT_USER: mtm
+          RABBITMQ_DEFAULT_PASS: mtm
         ports: ['5672:5672']
         options: >-
           --health-cmd "rabbitmq-diagnostics -q ping"
@@ -39,7 +42,7 @@ jobs:
           --health-retries 20
     env:
       DATABASE_URL: postgres://postgres:postgres@localhost:5432/move_money
-      RABBITMQ_URL: amqp://guest:guest@localhost:5672
+      RABBITMQ_URL: amqp://mtm:mtm@localhost:5672
       REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4

@@ -99,7 +99,7 @@ export const config = {
   jwtTtlSeconds: parsePositiveInt('JWT_TTL_SECONDS', 3600),
   // Charged to the sender on top of the amount, rounded to the cent. 0 disables fees.
   transferFeePercent: parseFeePercent(process.env.TRANSFER_FEE_PERCENT),
-  rabbitmqUrl: process.env.RABBITMQ_URL ?? 'amqp://guest:guest@localhost:5672',
+  rabbitmqUrl: process.env.RABBITMQ_URL ?? 'amqp://mtm:mtm@localhost:5672',
   // Prefixes every exchange and queue name, so environments (or test runs) sharing a broker don't collide.
   amqpPrefix: process.env.AMQP_PREFIX ?? 'mtm.',
   // A failed message is retried after each delay in turn, then dead-lettered.

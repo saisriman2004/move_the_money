@@ -6,7 +6,7 @@ import type { PoolClient } from 'pg';
 import type { DomainEvent } from '../src/outbox';
 import { startTestApp, type TestApp } from './helpers';
 
-const URL = process.env.RABBITMQ_URL ?? 'amqp://guest:guest@localhost:5672';
+const URL = process.env.RABBITMQ_URL ?? 'amqp://mtm:mtm@localhost:5672';
 // Unique per run, so parallel or repeated runs never share queues.
 const PREFIX = `test.${process.pid}.${Date.now()}.`;
 const RETRY_DELAYS = [100, 200];

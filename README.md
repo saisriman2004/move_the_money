@@ -17,11 +17,30 @@ See [BUILD_LOG.md](BUILD_LOG.md) for how this was built, including how AI was us
 
 ## Running it
 
+### Everything in Docker (quickest)
+
+```bash
+docker compose up -d --build     # PostgreSQL, Redis, RabbitMQ, migrations, API, 4 workers, web app
+open http://localhost:8080       # the web app (nginx serves it and proxies /api)
+```
+
+| Service | What it is | Port |
+|---|---|---|
+| `frontend` | nginx: the React app, and a proxy for `/api` | 8080 |
+| `api` | the Express API | 3000 |
+| `migrate` | applies migrations once, then exits; everything else waits for it | |
+| `outbox-relay`, `notifications`, `webhooks`, `reconciliation` | workers; `/metrics` and `/health` on 9101–9104 inside the network | |
+| `postgres`, `redis`, `rabbitmq` | infrastructure (RabbitMQ UI on 15672, user `mtm` / `mtm`) | |
+
+Workers exit when they lose RabbitMQ and Docker restarts them (`restart: unless-stopped`); events wait safely in the outbox meanwhile. Set `JWT_SECRET` in the environment for anything beyond a local demo. `docker compose down -v` removes everything, including the database.
+
+### Running the code directly
+
 ### Requirements
 
 - Node.js 22 or newer
 - PostgreSQL 13 or newer (developed on 18.4 with [Postgres.app](https://postgresapp.com/))
-- Docker, for RabbitMQ and Redis: `docker compose up -d` (see `docker-compose.yml`)
+- Docker, for RabbitMQ and Redis: `docker compose up -d rabbitmq redis`
 
 ### Setup
 
@@ -44,6 +63,7 @@ npm run dev                   # http://localhost:3000
 | `npm run lint` | Runs ESLint |
 | `npm run worker:outbox` | Runs the outbox relay worker |
 | `npm run worker:notifications` | Runs the notification worker |
+| `npm run e2e` (in `frontend/`) | Browser end-to-end test against a running stack (default `http://localhost:8080`), using the installed Chrome |
 | `npm run reconcile` | Audits the ledger once, prints the report, exits 1 on any mismatch |
 | `npm run worker:reconciliation` | Audits the ledger every `RECONCILIATION_INTERVAL_MS` (default hourly) |
 | `npm run worker:webhooks` | Runs the webhook worker (event fan-out and HTTP delivery) |
@@ -74,7 +94,7 @@ Each payment gets its own `Idempotency-Key`. After a network error or a 5xx, **R
 | `PORT` | `3000` | Must be a valid port number |
 | `JWT_SECRET` | none (required by the server) | At least 32 characters; signs access tokens. Migrations don't need it |
 | `JWT_TTL_SECONDS` | `3600` | Access token lifetime |
-| `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672` | Message broker for domain events |
+| `RABBITMQ_URL` | `amqp://mtm:mtm@localhost:5672` | Message broker for domain events |
 | `AMQP_PREFIX` | `mtm.` | Prefix for every exchange and queue name |
 | `CONSUMER_RETRY_DELAYS_MS` | `1000,5000,25000` | Delays before each retry of a failing message; after the last it is dead-lettered |
 | `REDIS_URL` | `redis://localhost:6379` | Rate-limit counters and the account cache |

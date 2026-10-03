@@ -1,11 +1,53 @@
-# Local infrastructure for development and tests. PostgreSQL runs wherever
-# DATABASE_URL points (e.g. Postgres.app). Start with: docker compose up -d
+# The whole platform: docker compose up --build   →   http://localhost:8080
+#
+# For local development and tests, start only the infrastructure the code on your
+# machine connects to:   docker compose up -d rabbitmq redis
+# (PostgreSQL for development runs wherever DATABASE_URL points, e.g. Postgres.app.)
+
+x-app-env: &app-env
+  DATABASE_URL: postgres://mtm:mtm@postgres:5432/move_money
+  RABBITMQ_URL: amqp://mtm:mtm@rabbitmq:5672
+  REDIS_URL: redis://redis:6379
+  # Change this for anything other than a local demo.
+  JWT_SECRET: ${JWT_SECRET:-local-demo-secret-change-me-0123456789abcdef}
+  TRANSFER_FEE_PERCENT: ${TRANSFER_FEE_PERCENT:-1}
+  # Only for this demo, so webhooks can point at a container or the host.
+  WEBHOOK_ALLOW_PRIVATE_URLS: ${WEBHOOK_ALLOW_PRIVATE_URLS:-true}
+  LOG_LEVEL: info
+
+x-worker: &worker
+  image: move-the-money-backend
+  environment: *app-env
+  # Workers exit when they lose the broker; restarting them is part of the design.
+  restart: unless-stopped
+  depends_on:
+    migrate: { condition: service_completed_successfully }
+    rabbitmq: { condition: service_healthy }
+
 services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: mtm
+      POSTGRES_PASSWORD: mtm
+      POSTGRES_DB: move_money
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'mtm', '-d', 'move_money']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   rabbitmq:
     image: rabbitmq:4-management
+    environment:
+      # Not the default guest/guest account. Development and tests use the same user.
+      RABBITMQ_DEFAULT_USER: mtm
+      RABBITMQ_DEFAULT_PASS: mtm
     ports:
-      - '5672:5672'   # AMQP
-      - '15672:15672' # management UI (guest / guest)
+      - '5672:5672'   # AMQP, for development and tests on the host
+      - '15672:15672' # management UI (mtm / mtm)
     healthcheck:
       test: ['CMD', 'rabbitmq-diagnostics', '-q', 'ping']
       interval: 5s
@@ -21,3 +63,86 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  # Applies pending migrations once, then exits. Everything else waits for it.
+  migrate:
+    build: .
+    image: move-the-money-backend
+    command: ['node', 'dist/db/migrate.js']
+    environment: *app-env
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    image: move-the-money-backend
+    environment:
+      <<: *app-env
+      PORT: 3000
+      TRUST_PROXY: 1
+    ports:
+      - '3000:3000'
+    restart: unless-stopped
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:3000/ready']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  outbox-relay:
+    <<: *worker
+    command: ['node', 'dist/workers/outbox-relay.js']
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:9101/health']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  notifications:
+    <<: *worker
+    command: ['node', 'dist/workers/notifications.js']
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:9102/health']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  webhooks:
+    <<: *worker
+    command: ['node', 'dist/workers/webhooks.js']
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:9103/health']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  reconciliation:
+    <<: *worker
+    command: ['node', 'dist/workers/reconciliation.js']
+    environment:
+      <<: *app-env
+      RECONCILIATION_INTERVAL_MS: ${RECONCILIATION_INTERVAL_MS:-300000}
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:9104/health']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  frontend:
+    build: ./frontend
+    ports:
+      - '8080:8080'
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:8080/health']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:

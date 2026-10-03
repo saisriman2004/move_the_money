@@ -243,7 +243,7 @@ describe('end to end through RabbitMQ', () => {
     const { RabbitPublisher } = await import('../src/messaging/publisher.js');
     const { EventConsumer } = await import('../src/messaging/consumer.js');
     const { relayOutboxBatch } = await import('../src/outbox-relay.js');
-    const url = process.env.RABBITMQ_URL ?? 'amqp://guest:guest@localhost:5672';
+    const url = process.env.RABBITMQ_URL ?? 'amqp://mtm:mtm@localhost:5672';
     await relayOutboxBatch({ async publish() {} }, 100000); // only this test's events from here
     const publisher = await RabbitPublisher.connect(url, prefix);
     const consumer = await EventConsumer.start({
