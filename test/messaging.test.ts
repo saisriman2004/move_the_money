@@ -189,6 +189,25 @@ describe('idempotent, retrying consumers', () => {
 });
 
 describe('broker failures', () => {
+  test('a connection error (e.g. a missed heartbeat) closes the publisher cleanly instead of crashing the process', async () => {
+    const p = await messaging.RabbitPublisher.connect(URL, PREFIX);
+    const closed = p.closed();
+    // What amqplib does when heartbeats stop: emit 'error', then close.
+    const connection = (p as unknown as { connection: import('events').EventEmitter & { close(): Promise<void> } }).connection;
+    connection.emit('error', new Error('Heartbeat timeout'));
+    await connection.close();
+    await closed;
+  });
+
+  test('a connection error on a consumer closes it cleanly instead of crashing the process', async () => {
+    const c = await startConsumer(['transfer.completed'], async () => {});
+    const closed = (c as unknown as { closed(): Promise<void> }).closed();
+    const connection = (c as unknown as { connection: import('events').EventEmitter & { close(): Promise<void> } }).connection;
+    connection.emit('error', new Error('Heartbeat timeout'));
+    await connection.close();
+    await closed;
+  });
+
   test('if the broker connection is gone, the relay leaves events pending to retry later', async () => {
     const broken = await messaging.RabbitPublisher.connect(URL, PREFIX);
     await broken.close();

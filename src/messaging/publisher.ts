@@ -1,4 +1,5 @@
 import { connect, type ChannelModel, type ConfirmChannel } from 'amqplib';
+import { logger } from '../logger';
 import type { DomainEvent } from '../outbox';
 import type { EventPublisher } from '../outbox-relay';
 import { eventsExchange } from './topology';
@@ -18,7 +19,11 @@ export class RabbitPublisher implements EventPublisher {
 
   static async connect(url: string, prefix: string, timeoutMs = 5000): Promise<RabbitPublisher> {
     const connection = await connect(url);
+    // amqplib emits 'error' (e.g. a missed heartbeat) before 'close'. Unhandled, that
+    // crashes the process; handled, the 'close' that follows lets the worker exit cleanly.
+    connection.on('error', (err: Error) => logger.warn('broker connection error', { error: err.message }));
     const channel = await connection.createConfirmChannel();
+    channel.on('error', (err: Error) => logger.warn('broker channel error', { error: err.message }));
     const exchange = eventsExchange(prefix);
     await channel.assertExchange(exchange, 'topic', { durable: true });
     return new RabbitPublisher(connection, channel, exchange, timeoutMs);

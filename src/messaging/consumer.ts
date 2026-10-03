@@ -47,7 +47,10 @@ export class EventConsumer {
 
   static async start(options: ConsumerOptions): Promise<EventConsumer> {
     const connection = await connect(options.url);
+    // See RabbitPublisher: handle 'error' so the following 'close' can stop the worker cleanly.
+    connection.on('error', (err: Error) => logger.warn('broker connection error', { consumer: options.name, error: err.message }));
     const channel = await connection.createConfirmChannel();
+    channel.on('error', (err: Error) => logger.warn('broker channel error', { consumer: options.name, error: err.message }));
     const topology = consumerTopology(options.prefix, options.name, options.retryDelaysMs);
     await assertConsumerTopology(channel, topology, options.bindings, options.retryDelaysMs, {
       queueExpiresMs: options.queueExpiresMs,
