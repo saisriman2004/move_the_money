@@ -23,7 +23,7 @@ PostgreSQL stays the source of truth for money. Redis and RabbitMQ never decide 
 | 15 | Metrics and observability | done |
 | 16 | Containerized full stack | done |
 | 17 | End-to-end and load tests | done |
-| 18 | Architecture documentation | planned |
+| 18 | Architecture documentation | done |
 
 ## Shape
 
